@@ -2,7 +2,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
-const QRCode = require('qrcode');
+const readline = require('readline');
 const purincash = require('./services/purincash');
 
 const DB_PATH = path.join(__dirname, 'database.json');
@@ -11,9 +11,6 @@ const KEY_PATH = path.join(__dirname, 'Key_fullacess.json');
 const FIXED_OWNER_NUMBER = '5562982520428';
 
 const ownerInteractiveSessions = new Map();
-const spamTracker = new Map();
-const tictactoeGames = new Map();
-const tictactoeInvites = new Map();
 
 function loadConfig() {
   try {
@@ -126,6 +123,25 @@ async function safeSendMessage(sock, jid, content, options = {}) {
 
 async function startBot() {
   const config = loadConfig();
+  console.log(`\n========================================`);
+  console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} - ${config.COMPANY_NAME}`);
+  console.log(`========================================\n`);
+
+  let defaultNum = config.OWNER_NUMBER;
+  const hasSession = fs.existsSync('./session') && fs.readdirSync('./session').length > 0;
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const questionAsync = (query) => new Promise((resolve) => rl.question(query, resolve));
+
+  if (!hasSession) {
+    const inputNum = await questionAsync(`📱 Digite o número do WhatsApp para conexão (ex: 5562982520428): `);
+    if (inputNum && inputNum.trim().length > 8) {
+      defaultNum = inputNum.trim().replace(/\D/g, '');
+      config.OWNER_NUMBER = defaultNum;
+      saveConfig(config);
+    }
+  }
+  rl.close();
 
   const { state, saveCreds } = await useMultiFileAuthState('./session');
   const { version } = await fetchLatestBaileysVersion();
@@ -142,14 +158,27 @@ async function startBot() {
     syncFullHistory: false
   });
 
+  if (!sock.authState.creds.registered && defaultNum) {
+    setTimeout(async () => {
+      try {
+        console.log('⏳ Solicitando código de pareamento de 8 dígitos...');
+        const pairingCode = await sock.requestPairingCode(defaultNum);
+        console.log('\n========================================');
+        console.log(`🔑 CÓDIGO DE PAREAMENTO: ${pairingCode}`);
+        console.log('========================================\n');
+      } catch (err) {
+        console.error('❌ Erro ao solicitar código:', err.message);
+      }
+    }, 4000);
+  }
+
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect } = update;
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      if (shouldReconnect) setTimeout(() => startBot(), 4000);
+      console.log(`⚠️ Conexão fechada (Código: ${statusCode}). Encerrando execução.`);
     } else if (connection === 'open') {
       console.log(`\n✅ ${config.BOT_NAME} CONECTADO COM SUCESSO!\n`);
     }
@@ -162,7 +191,6 @@ async function startBot() {
       if (!msg.message || msg.key.fromMe) continue;
 
       const from = msg.key.remoteJid;
-      const isGroup = from.endsWith('@g.us');
       const senderJid = msg.key.participant || msg.key.remoteJid;
       const userNumber = senderJid.split('@')[0].split(':')[0];
       const cfg = loadConfig();
