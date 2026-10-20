@@ -178,7 +178,15 @@ async function startBot() {
     const { connection, lastDisconnect } = update;
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      console.log(`⚠️ Conexão fechada (Código: ${statusCode}). Encerrando execução.`);
+      console.log(`⚠️ Conexão fechada (Código: ${statusCode}).`);
+      
+      // Se for código 515 (restart necessário após pareamento) ou 428, reinicia automaticamente para conectar
+      if (statusCode === 515 || statusCode === 428 || statusCode === DisconnectReason.connectionRestart) {
+        console.log('🔄 Reiniciando conexão para concluir o pareamento...');
+        setTimeout(() => startBot(), 3000);
+      } else {
+        console.log('Encerrando execução.');
+      }
     } else if (connection === 'open') {
       console.log(`\n✅ ${config.BOT_NAME} CONECTADO COM SUCESSO!\n`);
     }
