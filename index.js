@@ -181,7 +181,6 @@ async function startBot() {
         senderJid.split('@')[0] === db.ownerJid.split('@')[0]
       );
 
-      // SESSÕES INTERATIVAS / SETOWNER / GATEWAYS / CRIAÇÃO DE PLANOS
       if (ownerInteractiveSessions.has(senderJid)) {
         const session = ownerInteractiveSessions.get(senderJid);
 
@@ -252,14 +251,12 @@ async function startBot() {
       const command = trimmedText.split(' ')[0].toLowerCase();
       const args = trimmedText.split(' ').slice(1);
 
-      // COMANDO /SETOWNER
       if (command === '/setowner') {
         ownerInteractiveSessions.set(senderJid, { step: 'SETOWNER_KEY' });
         await safeSendMessage(sock, from, { text: `⚜️ *REGISTRO DE DONO SUPREMO* 👑\n\n💬 Envie a Key secreta neste chat:` }, { quoted: msg });
         continue;
       }
 
-      // GATEWAYS DE PAGAMENTO (PURINCASH E MAGNUSPAY)
       if (command === '/purincash') {
         const info = `💳 *GATEWAY — PURINCASH* 🏦\nConfigure sua API Key com \`/setapi <chave>\` e \`/setsecret <secret>\`.`;
         await safeSendMessage(sock, from, { text: info }, { quoted: msg });
@@ -283,7 +280,6 @@ async function startBot() {
         continue;
       }
 
-      // GESTÃO DE ALUGUEL E PLANOS
       if (command === '/criaraluguel' && isOwner) {
         ownerInteractiveSessions.set(senderJid, { step: 'CREATE_PLAN_ID' });
         await safeSendMessage(sock, from, { text: `🛠️ *CRIADOR DE PLANO* 💼\nDigite o ID único do plano:` }, { quoted: msg });
@@ -299,7 +295,6 @@ async function startBot() {
         continue;
       }
 
-      // MENU VIP & COMANDO /REVELAR
       if (command === '/menuvip') {
         const vipMenu = `🌟 *MENU VIP — LUNAR SYSTEM ©* 👑\n\n` +
           `✨ *Comandos Exclusivos VIP:*\n` +
@@ -347,14 +342,12 @@ async function startBot() {
         continue;
       }
 
-      // COMANDO /PING
       if (command === '/ping') {
         const start = Date.now();
         await safeSendMessage(sock, from, { text: `🏓 Pong! Latência: ${Date.now() - start}ms | Lunar System 100% Operacional.` }, { quoted: msg });
         continue;
       }
 
-      // MENU DO DONO & PRINCIPAL (COM O /DEV NO FINAL)
       if (command === '/menudono' && isOwner) {
         const donoMenu = `🤖 *PAINEL DO DONO* 👑\n\n` +
           `› \`/criaraluguel\` - Cria plano personalizado\n` +
@@ -376,7 +369,6 @@ async function startBot() {
         continue;
       }
 
-      // COMANDO /DEV POR ÚLTIMO
       if (command === '/dev') {
         const CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbEDNzxFCCoUo724eo45';
         const devText = `🤖 *INFORMATIONS & CREDITS — LUNAR SYSTEM ©* ⚜️\n\n` +
