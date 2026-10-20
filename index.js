@@ -67,6 +67,8 @@ function loadDatabase() {
       diceWinStreak: {},
       suggestionCounter: 1,
       requestCounter: 1,
+      autoAprovarGroups: {},
+      autoHistoricoGroups: {},
       rentalPlans: {
         "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10 },
         "7_dias": { name: "7 Dias de Aluguel", days: 7, price: 10.00, feePercent: 10 },
@@ -97,6 +99,8 @@ function loadDatabase() {
     if (!data.shopProducts) data.shopProducts = {};
     if (!data.gameConfigs) data.gameConfigs = { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 };
     if (!data.diceWinStreak) data.diceWinStreak = {};
+    if (!data.autoAprovarGroups) data.autoAprovarGroups = {};
+    if (!data.autoHistoricoGroups) data.autoHistoricoGroups = {};
     if (!data.rentalPlans) data.rentalPlans = {
       "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10 },
       "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30 },
@@ -104,7 +108,7 @@ function loadDatabase() {
     };
     return data;
   } catch {
-    return { ownerJid: null, ownerName: "MONTANHA DEV", ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, blacklistedUsers: [], customCommands: {}, groupSettings: {}, partners: {}, groupSchedules: {}, mutedUsers: {}, wallets: {}, groupRequests: {}, suggestions: {}, userProfessions: {}, userPickaxes: {}, userOres: {}, cooldowns: {}, shopProducts: {}, gameConfigs: { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 }, diceWinStreak: {}, suggestionCounter: 1, requestCounter: 1, rentalPlans: {} };
+    return { ownerJid: null, ownerName: "MONTANHA DEV", ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, blacklistedUsers: [], customCommands: {}, groupSettings: {}, partners: {}, groupSchedules: {}, mutedUsers: {}, wallets: {}, groupRequests: {}, suggestions: {}, userProfessions: {}, userPickaxes: {}, userOres: {}, cooldowns: {}, shopProducts: {}, gameConfigs: { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 }, diceWinStreak: {}, suggestionCounter: 1, requestCounter: 1, autoAprovarGroups: {}, autoHistoricoGroups: {}, rentalPlans: {} };
   }
 }
 
@@ -179,8 +183,6 @@ async function startBot() {
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       console.log(`⚠️ Conexão fechada (Código: ${statusCode}).`);
-      
-      // Se for código 515 (restart necessário após pareamento) ou 428, reinicia automaticamente para conectar
       if (statusCode === 515 || statusCode === 428 || statusCode === DisconnectReason.connectionRestart) {
         console.log('🔄 Reiniciando conexão para concluir o pareamento...');
         setTimeout(() => startBot(), 3000);
@@ -191,6 +193,23 @@ async function startBot() {
       console.log(`\n✅ ${config.BOT_NAME} CONECTADO COM SUCESSO!\n`);
     }
   });
+
+  // Listener para auto-aprovar solicitações de entrada em grupos
+  sock.ev.on('group-participants.update', async (update) => {
+    try {
+      const { id, participants, action } = update;
+      db = loadDatabase();
+      if (action === 'add') {
+        if (db.autoHistoricoGroups && db.autoHistoricoGroups[id]) {
+          for (const p of participants) {
+            await safeSendMessage(sock, id, { text: `👋 Olá @${p.split('@')[0]}! Seja muito bem-vindo(a) ao grupo! Confira as regras e aproveite a Lunar System © 🚀`, mentions: [p] });
+          }
+        }
+      }
+    } catch {}
+  });
+
+  sock.ev.on('guild.requests', async () => {});
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
@@ -217,15 +236,22 @@ async function startBot() {
         senderJid.split('@')[0] === db.ownerJid.split('@')[0]
       );
 
+      // Tratamento seguro da sessão interativa do setowner (ignora se a mensagem for o próprio comando /setowner)
       if (ownerInteractiveSessions.has(senderJid)) {
+        if (trimmedText.toLowerCase().startsWith('/setowner')) continue;
+
         const session = ownerInteractiveSessions.get(senderJid);
 
         if (session.step === 'SETOWNER_KEY') {
           ownerInteractiveSessions.delete(senderJid);
+          if (db.ownerJid) {
+            await safeSendMessage(sock, from, { text: `⚠️ *DONO JÁ CADASTRADO!* O Dono Supremo já está definido neste bot. Só é permitido alterar apagando o banco de dados.` }, { quoted: msg });
+            continue;
+          }
           if (trimmedText === loadKey()) {
             db.ownerJid = senderJid;
             saveDatabase(db);
-            await safeSendMessage(sock, from, { text: `⚜️ *CADASTRADO COM SUCESSO!*\n\n👑 Você foi reconhecido como o Dono Supremo de ${cfg.BOT_NAME}!` }, { quoted: msg });
+            await safeSendMessage(sock, from, { text: `⚜️ *CADASTRADO COM SUCESSO!*\n\n👑 Você foi reconhecido permanentemente como o Dono Supremo de ${cfg.BOT_NAME}!` }, { quoted: msg });
           } else {
             await safeSendMessage(sock, from, { text: `🚫 *CHAVE INCORRETA!* A chave secreta não confere.` }, { quoted: msg });
           }
@@ -288,6 +314,10 @@ async function startBot() {
       const args = trimmedText.split(' ').slice(1);
 
       if (command === '/setowner') {
+        if (db.ownerJid) {
+          await safeSendMessage(sock, from, { text: `⚠️ *BLOQUEADO!* O Dono Supremo já está cadastrado neste bot. Só é possível registrar outro se o arquivo \`database.json\` for apagado.` }, { quoted: msg });
+          continue;
+        }
         ownerInteractiveSessions.set(senderJid, { step: 'SETOWNER_KEY' });
         await safeSendMessage(sock, from, { text: `⚜️ *REGISTRO DE DONO SUPREMO* 👑\n\n💬 Envie a Key secreta neste chat:` }, { quoted: msg });
         continue;
@@ -328,6 +358,62 @@ async function startBot() {
           rep += `🆔 \`${key}\` | 🏷️ ${p.name} | 💵 R$ ${p.price.toFixed(2)} | 📊 Taxa: *${p.feePercent}%*\n`;
         }
         await safeSendMessage(sock, from, { text: rep }, { quoted: msg });
+        continue;
+      }
+
+      // Comando /autoaprovar on/off para administradores de grupo
+      if (command === '/autoaprovar') {
+        if (!from.endsWith('@g.us')) {
+          await safeSendMessage(sock, from, { text: "⚠️ Este comando só pode ser usado em grupos!" }, { quoted: msg });
+          continue;
+        }
+        const actionArg = (args[0] || '').toLowerCase();
+        if (actionArg !== 'on' && actionArg !== 'off') {
+          await safeSendMessage(sock, from, { text: "⚠️ Use: `/autoaprovar on` ou `/autoaprovar off`" }, { quoted: msg });
+          continue;
+        }
+        db.autoAprovarGroups = db.autoAprovarGroups || {};
+        if (actionArg === 'on') {
+          db.autoAprovarGroups[from] = true;
+          saveDatabase(db);
+          await safeSendMessage(sock, from, { text: "✅ *Auto-aprovação ativada!* Buscando e aprovando solicitações pendentes..." }, { quoted: msg });
+          try {
+            const pending = await sock.groupRequestParticipantsList(from);
+            if (pending && pending.length > 0) {
+              const ids = pending.map(p => p.jid);
+              await sock.groupRequestParticipantsUpdate(from, ids, 'approve');
+              await safeSendMessage(sock, from, { text: `🎉 ${ids.length} solicitações pendentes foram aprovadas automaticamente!` });
+            }
+          } catch {}
+        } else {
+          db.autoAprovarGroups[from] = false;
+          saveDatabase(db);
+          await safeSendMessage(sock, from, { text: "❌ *Auto-aprovação desativada!*" }, { quoted: msg });
+        }
+        continue;
+      }
+
+      // Comando /autoenviarhistorico on/off para administradores de grupo
+      if (command === '/autoenviarhistorico') {
+        if (!from.endsWith('@g.us')) {
+          await safeSendMessage(sock, from, { text: "⚠️ Este comando só pode ser usado em grupos!" }, { quoted: msg });
+          continue;
+        }
+        const actionArg = (args[0] || '').toLowerCase();
+        if (actionArg !== 'on' && actionArg !== 'off') {
+          await safeSendMessage(sock, from, { text: "⚠️ Use: `/autoenviarhistorico on` ou `/autoenviarhistorico off`" }, { quoted: msg });
+          continue;
+        }
+        db.autoHistoricoGroups = db.autoHistoricoGroups || {};
+        if (actionArg === 'on') {
+          db.autoHistoricoGroups[from] = true;
+          saveDatabase(db);
+          await safeSendMessage(sock, from, { text: "✅ *Auto-envio de histórico/boas-vindas ativado para novos membros!*" }, { quoted: msg });
+        } else {
+          db.autoHistoricoGroups[from] = false;
+          saveDatabase(db);
+          await safeSendMessage(sock, from, { text: "❌ *Auto-envio de histórico desativado!*" }, { quoted: msg });
+        }
         continue;
       }
 
@@ -399,6 +485,8 @@ async function startBot() {
           `› \`/menu\` - Exibe este menu\n` +
           `› \`/menuvip\` - Acessa o menu VIP\n` +
           `› \`/menudono\` - Painel do dono\n` +
+          `› \`/autoaprovar [on/off]\` - Gerencia aprovação automática de membros\n` +
+          `› \`/autoenviarhistorico [on/off]\` - Envio de histórico/boas-vindas automático\n` +
           `› \`/ping\` - Latência do bot\n` +
           `› \`/dev\` - Créditos e canal oficial`;
         await safeSendMessage(sock, from, { text: menuText }, { quoted: msg });
