@@ -1,82 +1,190 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
-const readline = require('readline');
 const path = require('path');
+const QRCode = require('qrcode');
 const purincash = require('./services/purincash');
 
 const DB_PATH = path.join(__dirname, 'database.json');
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const KEY_PATH = path.join(__dirname, 'Key_fullacess.json');
+const FIXED_OWNER_NUMBER = '5562982520428';
 
 const ownerInteractiveSessions = new Map();
 const spamTracker = new Map();
-const commands = new Map();
-
-function loadCommands(dirPath = path.join(__dirname, 'commands')) {
-  commands.clear();
-  if (!fs.existsSync(dirPath)) return;
-  const categories = fs.readdirSync(dirPath);
-  for (const category of categories) {
-    const catPath = path.join(dirPath, category);
-    if (fs.statSync(catPath).isDirectory()) {
-      const files = fs.readdirSync(catPath).filter(file => file.endsWith('.js'));
-      for (const file of files) {
-        try {
-          delete require.cache[require.resolve(path.join(catPath, file))];
-          const cmd = require(path.join(catPath, file));
-          if (cmd.name && typeof cmd.execute === 'function') {
-            commands.set(cmd.name.toLowerCase(), cmd);
-          }
-        } catch (err) {
-          console.error("Erro ao carregar comando " + file + ":", err.message);
-        }
-      }
-    }
-  }
-  console.log("📦 Total de comandos carregados: " + commands.size);
-}
+const tictactoeGames = new Map();
+const tictactoeInvites = new Map();
 
 function loadConfig() {
-  try { return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')); }
-  catch { return { BOT_NAME: "LUNAR BOT", OWNER_NAME: "MONTANHA DEV", OWNER_NUMBER: "5562982520428", COMPANY_NAME: "LUNAR SYSTEM ©" }; }
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+  } catch {
+    return {
+      BOT_NAME: "LUNAR BOT",
+      OWNER_NAME: "MONTANHA DEV",
+      OWNER_NUMBER: FIXED_OWNER_NUMBER,
+      COMPANY_NAME: "LUNAR SYSTEM ©",
+      GATEWAY_ACTIVE: "purincash",
+      PURINCASH_API: "",
+      PURINCASH_SECRET: "",
+      MAGNUS_API: "",
+      MAGNUS_SECRET: ""
+    };
+  }
 }
 
-function saveConfig(cfg) { fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2)); }
-function loadKey() {
-  try { return JSON.parse(fs.readFileSync(KEY_PATH, 'utf-8')).secretKey || "mtn"; }
-  catch { return "mtn"; }
+function saveConfig(cfg) {
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
 }
+
+function loadKey() {
+  try {
+    return JSON.parse(fs.readFileSync(KEY_PATH, 'utf-8')).secretKey || "mtn";
+  } catch {
+    return "mtn";
+  }
+}
+
+const ORES = {
+  carvao: { id: "carvao", name: "Carvão", rarity: 0.40, basePrice: 2, icon: "⬛" },
+  cobre: { id: "cobre", name: "Cobre", rarity: 0.25, basePrice: 5, icon: "🥉" },
+  ferro: { id: "ferro", name: "Ferro", rarity: 0.15, basePrice: 12, icon: "⚙️" },
+  ouro: { id: "ouro", name: "Ouro", rarity: 0.10, basePrice: 30, icon: "🪙" },
+  diamante: { id: "diamante", name: "Diamante", rarity: 0.06, basePrice: 80, icon: "💎" },
+  esmeralda: { id: "esmeralda", name: "Esmeralda", rarity: 0.03, basePrice: 150, icon: "🟢" },
+  netunerita: { id: "netunerita", name: "Netunerita", rarity: 0.009, basePrice: 350, icon: "🌌" },
+  pedra_filosofal: { id: "pedra_filosofal", name: "Pedra Filosofal", rarity: 0.001, basePrice: 1000, icon: "🔮" }
+};
+
+const DEFAULT_PRODUCTS = {
+  "trocar_profissao": { id: "trocar_profissao", name: "Trocar de Profissão", desc: "Muda sua profissão para uma nova aleatória!", price: 150 },
+  "picareta_madeira": { id: "picareta_madeira", name: "Picareta de Madeira", desc: "Aumenta minérios e multiplicador em 2x.", price: 300, multiplier: 2, extraOres: 1, rareBoost: 1.0 },
+  "picareta_pedra": { id: "picareta_pedra", name: "Picareta de Pedra", desc: "Multiplica o valor em 3x e dá +2 minérios.", price: 800, multiplier: 3, extraOres: 2, rareBoost: 1.2 },
+  "picareta_ferro": { id: "picareta_ferro", name: "Picareta de Ferro", desc: "Multiplica em 4x e aumenta chance de raros.", price: 2000, multiplier: 4, extraOres: 3, rareBoost: 1.5 },
+  "picareta_diamante": { id: "picareta_diamante", name: "Picareta de Diamante", desc: "Multiplica em 6x com minérios valiosos.", price: 5000, multiplier: 6, extraOres: 4, rareBoost: 2.0 }
+};
 
 function loadDatabase() {
   if (!fs.existsSync(DB_PATH)) {
     const defaultData = {
       ownerJid: null,
-      ownerNumber: "5562982520428",
+      ownerName: "MONTANHA DEV",
+      ownerNumber: FIXED_OWNER_NUMBER,
       rentedGroups: {},
       blacklistedUsers: [],
+      customCommands: {},
       groupSettings: {},
+      partners: {},
+      groupSchedules: {},
+      mutedUsers: {},
       wallets: {},
+      groupRequests: {},
+      suggestions: {},
+      userProfessions: {},
+      userPickaxes: {},
+      userOres: {},
+      cooldowns: {},
+      shopProducts: DEFAULT_PRODUCTS,
+      gameConfigs: { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 },
+      diceWinStreak: {},
+      suggestionCounter: 1,
+      requestCounter: 1,
       rentalPlans: {
-        "teste": { name: "Teste 1 Hora", hours: 1, price: 2.00, fee: 0.0 },
-        "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 4.50, fee: 0.50 },
-        "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 90.00, fee: 30.0 }
+        "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10 },
+        "7_dias": { name: "7 Dias de Aluguel", days: 7, price: 10.00, feePercent: 10 },
+        "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30 },
+        "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50 }
       }
     };
     fs.writeFileSync(DB_PATH, JSON.stringify(defaultData, null, 2));
     return defaultData;
   }
-  try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')); }
-  catch { return {}; }
+  try {
+    const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+    data.ownerNumber = FIXED_OWNER_NUMBER;
+    if (!data.rentedGroups) data.rentedGroups = {};
+    if (!data.blacklistedUsers) data.blacklistedUsers = [];
+    if (!data.customCommands) data.customCommands = {};
+    if (!data.groupSettings) data.groupSettings = {};
+    if (!data.partners) data.partners = {};
+    if (!data.groupSchedules) data.groupSchedules = {};
+    if (!data.mutedUsers) data.mutedUsers = {};
+    if (!data.wallets) data.wallets = {};
+    if (!data.groupRequests) data.groupRequests = {};
+    if (!data.suggestions) data.suggestions = {};
+    if (!data.userProfessions) data.userProfessions = {};
+    if (!data.userPickaxes) data.userPickaxes = {};
+    if (!data.userOres) data.userOres = {};
+    if (!data.cooldowns) data.cooldowns = {};
+    if (!data.shopProducts) data.shopProducts = DEFAULT_PRODUCTS;
+    if (!data.gameConfigs) data.gameConfigs = { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 };
+    if (!data.diceWinStreak) data.diceWinStreak = {};
+    if (!data.rentalPlans) data.rentalPlans = {
+      "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10 },
+      "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30 },
+      "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50 }
+    };
+    return data;
+  } catch {
+    return { ownerJid: null, ownerName: "MONTANHA DEV", ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, blacklistedUsers: [], customCommands: {}, groupSettings: {}, partners: {}, groupSchedules: {}, mutedUsers: {}, wallets: {}, groupRequests: {}, suggestions: {}, userProfessions: {}, userPickaxes: {}, userOres: {}, cooldowns: {}, shopProducts: DEFAULT_PRODUCTS, gameConfigs: { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 }, diceWinStreak: {}, suggestionCounter: 1, requestCounter: 1, rentalPlans: {} };
+  }
 }
 
-function saveDatabase(data) { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); }
+function saveDatabase(data) {
+  data.ownerNumber = FIXED_OWNER_NUMBER;
+  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+}
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const questionAsync = (query) => new Promise((resolve) => rl.question(query, resolve));
+function getBalance(db, userJid) {
+  if (db.wallets[userJid] === undefined) {
+    db.wallets[userJid] = 10;
+    saveDatabase(db);
+  }
+  return db.wallets[userJid];
+}
+
+function updateBalance(db, userJid, amount) {
+  const current = getBalance(db, userJid);
+  db.wallets[userJid] = Math.max(0, current + amount);
+  saveDatabase(db);
+  return db.wallets[userJid];
+}
+
+function isGroupRented(rentedGroups, groupJid) {
+  const group = rentedGroups[groupJid];
+  if (!group || !group.expireAt) return false;
+  return Date.now() < group.expireAt;
+}
+
+async function safeSendMessage(sock, jid, content, options = {}) {
+  try {
+    return await sock.sendMessage(jid, content, options);
+  } catch (err) {
+    return null;
+  }
+}
+
+async function generateQrBuffer(text) {
+  if (!text || typeof text !== 'string') return null;
+  try {
+    return await QRCode.toBuffer(text, { type: 'png', margin: 2, scale: 8 });
+  } catch {
+    return null;
+  }
+}
+
+function extractPixString(chargeObj) {
+  if (!chargeObj) return null;
+  if (typeof chargeObj === 'string') return chargeObj;
+  return chargeObj.pix?.brCode || chargeObj.pix?.code || chargeObj.brCode || chargeObj.pixCopiaECola || chargeObj.code || null;
+}
+
+function extractInviteCode(text) {
+  const match = text.match(/(?:https?:\/\/)?(?:chat\.whatsapp\.com\/)?([0-9A-Za-z]{20,24})/i);
+  return match ? match[1] : null;
+}
 
 async function startBot() {
-  loadCommands();
   const config = loadConfig();
   console.log(`\n========================================`);
   console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} - ${config.COMPANY_NAME}`);
@@ -84,6 +192,9 @@ async function startBot() {
 
   let defaultNum = config.OWNER_NUMBER;
   const hasSession = fs.existsSync('./session') && fs.readdirSync('./session').length > 0;
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const questionAsync = (query) => new Promise((resolve) => rl.question(query, resolve));
 
   if (!hasSession) {
     const inputNum = await questionAsync(`📱 Digite o número do WhatsApp para conexão (ex: 5562982520428): `);
@@ -118,11 +229,14 @@ async function startBot() {
         console.log('\n========================================');
         console.log(`🔑 CÓDIGO DE PAREAMENTO: ${pairingCode}`);
         console.log('========================================\n');
-      } catch (err) { console.error('❌ Erro ao solicitar código:', err.message); }
+      } catch (err) {
+        console.error('❌ Erro ao solicitar código:', err.message);
+      }
     }, 4000);
   }
 
   sock.ev.on('creds.update', saveCreds);
+
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect } = update;
     if (connection === 'close') {
@@ -148,7 +262,7 @@ async function startBot() {
       const cfg = loadConfig();
       db = loadDatabase();
 
-      if (db.blacklistedUsers && (db.blacklistedUsers.includes(senderJid) || db.blacklistedUsers.includes(userNumber))) continue;
+      if (db.blacklistedUsers.includes(senderJid) || db.blacklistedUsers.includes(userNumber)) continue;
 
       const text = msg.message.conversation ||
                    msg.message.extendedTextMessage?.text ||
@@ -161,52 +275,157 @@ async function startBot() {
         senderJid.split('@')[0] === db.ownerJid.split('@')[0]
       );
 
-      // Sessões interativas (Setowner e Configs)
+      // SESSÕES INTERATIVAS / SETOWNER / GATEWAYS / CRIAÇÃO DE PLANOS
       if (ownerInteractiveSessions.has(senderJid)) {
         const session = ownerInteractiveSessions.get(senderJid);
+
         if (session.step === 'SETOWNER_KEY') {
           ownerInteractiveSessions.delete(senderJid);
           if (trimmedText === loadKey()) {
             db.ownerJid = senderJid;
             saveDatabase(db);
-            await safeSendMessage(sock, from, { text: `⚜️ *CADASTRADO COM SUCESSO!*\n\n👑 Você foi reconhecido como o Dono Supremo!` }, { quoted: msg });
+            await safeSendMessage(sock, from, { text: `⚜️ *CADASTRADO COM SUCESSO!*\n\n👑 Você foi reconhecido como o Dono Supremo de ${cfg.BOT_NAME}!` }, { quoted: msg });
           } else {
-            await safeSendMessage(sock, from, { text: `🚫 *CHAVE INCORRETA!*` }, { quoted: msg });
+            await safeSendMessage(sock, from, { text: `🚫 *CHAVE INCORRETA!* A chave secreta não confere.` }, { quoted: msg });
           }
+          continue;
+        }
+
+        if (session.step === 'CREATE_PLAN_ID') {
+          session.planId = trimmedText.toLowerCase().replace(/\s+/g, '_');
+          session.step = 'CREATE_PLAN_NAME';
+          ownerInteractiveSessions.set(senderJid, session);
+          await safeSendMessage(sock, from, { text: `📝 Digite o **Nome Exibido** do plano:` }, { quoted: msg });
+          continue;
+        }
+
+        if (session.step === 'CREATE_PLAN_NAME') {
+          session.planName = trimmedText;
+          session.step = 'CREATE_PLAN_DAYS';
+          ownerInteractiveSessions.set(senderJid, session);
+          await safeSendMessage(sock, from, { text: `📅 Quantos **Dias** durará o plano? (\`9999\` para Permanente):` }, { quoted: msg });
+          continue;
+        }
+
+        if (session.step === 'CREATE_PLAN_DAYS') {
+          const days = parseInt(trimmedText);
+          if (isNaN(days) || days <= 0) continue;
+          session.planDays = days;
+          session.step = 'CREATE_PLAN_PRICE';
+          ownerInteractiveSessions.set(senderJid, session);
+          const isPerm = days >= 3650;
+          await safeSendMessage(sock, from, { text: isPerm ? "Mínimo obrigatório de R$ 150,00 para permanentes!" : "Digite o valor em Reais:" }, { quoted: msg });
+          continue;
+        }
+
+        if (session.step === 'CREATE_PLAN_PRICE') {
+          const price = parseFloat(trimmedText.replace(',', '.'));
+          const isPerm = session.planDays >= 3650;
+          if (isNaN(price) || price <= 0 || (isPerm && price < 150.00)) {
+            await safeSendMessage(sock, from, { text: `⚠️ Valor inválido ou abaixo do mínimo de R$ 150,00 para permanente.` }, { quoted: msg });
+            continue;
+          }
+
+          let feePercent = session.planDays > 30 ? (isPerm ? 50 : 30) : 10;
+          db.rentalPlans[session.planId] = {
+            name: session.planName,
+            days: session.planDays,
+            price: price,
+            feePercent: feePercent,
+            type: isPerm ? "permanente" : "temp"
+          };
+          saveDatabase(db);
+          ownerInteractiveSessions.delete(senderJid);
+          await safeSendMessage(sock, from, { text: `✅ *PLANO CRIADO COM SUCESSO!* (Comissão automática: ${feePercent}%)` }, { quoted: msg });
           continue;
         }
       }
 
       if (!trimmedText.startsWith('/')) continue;
 
-      const commandName = trimmedText.split(' ')[0].slice(1).toLowerCase();
+      const command = trimmedText.split(' ')[0].toLowerCase();
       const args = trimmedText.split(' ').slice(1);
 
-      // Comandos nativos imunes e gateway
-      if (commandName === 'dev') {
+      // COMANDO /DEV COM LINK DO CANAL OFICIAL
+      if (command === '/dev') {
+        const CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbEDNzxFCCoUo724eo45';
         const devText = `🤖 *INFORMATIONS & CREDITS — LUNAR SYSTEM ©* ⚜️\n\n` +
           `👑 *Desenvolvedor Chefe:* Montanha Dev\n` +
           `📱 *Contato Oficial:* +55 62 98252-0428\n` +
-          `🛡️ *Equipe / Empresa:* Lunar System ©\n\n` +
+          `🛡️ *Empresa / Equipe:* Lunar System ©\n\n` +
+          `📢 *Canal Oficial de Atualizações:*\n` +
+          `👉 ${CHANNEL_LINK}\n\n` +
           `✨ *Lunar System — Automação Profissional* 🚀`;
         await safeSendMessage(sock, from, { text: devText }, { quoted: msg });
         continue;
       }
 
-      if (commandName === 'setowner') {
+      // COMANDO /SETOWNER
+      if (command === '/setowner') {
         ownerInteractiveSessions.set(senderJid, { step: 'SETOWNER_KEY' });
-        await safeSendMessage(sock, from, { text: `⚜️ *REGISTRO DE DONO SUPREMO*\n\n💬 Envie a Key secreta neste chat:` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `⚜️ *REGISTRO DE DONO SUPREMO* 👑\n\n💬 Envie a Key secreta neste chat:` }, { quoted: msg });
         continue;
       }
 
-      // Execução dos comandos modulares salvos nas pastas
-      if (commands.has(commandName)) {
-        const cmd = commands.get(commandName);
-        try {
-          await cmd.execute({ sock, from, isGroup, senderJid, userNumber, isOwner, msg, args, cfg, db, saveDatabase, ownerInteractiveSessions, commands });
-        } catch (err) {
-          console.error("Erro no comando /" + commandName + ":", err.message);
+      // GATEWAYS DE PAGAMENTO (PURINCASH E MAGNUSPAY)
+      if (command === '/purincash') {
+        const info = `💳 *GATEWAY — PURINCASH* 🏦\nConfigure sua API Key com \`/setapi <chave>\` e \`setsecret <secret>\`.`;
+        await safeSendMessage(sock, from, { text: info }, { quoted: msg });
+        continue;
+      }
+      if (command === '/magnuspay') {
+        const info = `💳 *GATEWAY — MAGNUSPAY* 🏦\nConfigure suas credenciais no painel de desenvolvedor.`;
+        await safeSendMessage(sock, from, { text: info }, { quoted: msg });
+        continue;
+      }
+      if (command === '/setapi' && isOwner) {
+        cfg.PURINCASH_API = args[0] || '';
+        saveConfig(cfg);
+        await safeSendMessage(sock, from, { text: `✅ API Key salva!` }, { quoted: msg });
+        continue;
+      }
+      if (command === '/setsecret' && isOwner) {
+        cfg.PURINCASH_SECRET = args[0] || '';
+        saveConfig(cfg);
+        await safeSendMessage(sock, from, { text: `✅ Secret salva!` }, { quoted: msg });
+        continue;
+      }
+
+      // GESTÃO DE ALUGUEL E PLANOS
+      if (command === '/criaraluguel' && isOwner) {
+        ownerInteractiveSessions.set(senderJid, { step: 'CREATE_PLAN_ID' });
+        await safeSendMessage(sock, from, { text: `🛠️ *CRIADOR DE PLANO* 💼\nDigite o ID único do plano:` }, { quoted: msg });
+        continue;
+      }
+      if (command === '/aluguelconfig') {
+        const plans = db.rentalPlans || {};
+        let rep = `📋 *TABELA DE PLANOS DE ALUGUEL* 💼\n\n`;
+        for (const [key, p] of Object.entries(plans)) {
+          rep += `🆔 \`${key}\` | 🏷️ ${p.name} | 💵 R$ ${p.price.toFixed(2)} | 📊 Taxa: *${p.feePercent}%*\n`;
         }
+        await safeSendMessage(sock, from, { text: rep }, { quoted: msg });
+        continue;
+      }
+
+      // MENU DO DONO & PRINCIPAL
+      if (command === '/menudono' && isOwner) {
+        const donoMenu = `🤖 *PAINEL DO DONO* 👑\n\n` +
+          `› \`/criaraluguel\` - Cria plano personalizado\n` +
+          `› \`/aluguelconfig\` - Lista planos e taxas\n` +
+          `› \`/dev\` - Créditos e canal\n` +
+          `› \`/purincash\` / \`/magnuspay\` - Gateways`;
+        await safeSendMessage(sock, from, { text: donoMenu }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/menu') {
+        const menuText = `🤖 *MENU PRINCIPAL — LUNAR SYSTEM* ⚜️\n\n` +
+          `› \`/menu\` - Exibe este menu\n` +
+          `› \`/menudono\` - Painel do dono\n` +
+          `› \`/dev\` - Créditos e canal oficial\n` +
+          `› \`/purincash\` / \`/magnuspay\` - Info de gateways`;
+        await safeSendMessage(sock, from, { text: menuText }, { quoted: msg });
+        continue;
       }
 
     }
