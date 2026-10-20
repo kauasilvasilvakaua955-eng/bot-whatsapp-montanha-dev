@@ -126,7 +126,6 @@ async function safeSendMessage(sock, jid, content, options = {}) {
 
 async function startBot() {
   const config = loadConfig();
-  let defaultNum = config.OWNER_NUMBER || FIXED_OWNER_NUMBER;
 
   const { state, saveCreds } = await useMultiFileAuthState('./session');
   const { version } = await fetchLatestBaileysVersion();
@@ -142,15 +141,6 @@ async function startBot() {
     generateHighQualityLinkPreview: true,
     syncFullHistory: false
   });
-
-  if (!sock.authState.creds.registered && defaultNum) {
-    setTimeout(async () => {
-      try {
-        const pairingCode = await sock.requestPairingCode(defaultNum);
-        console.log(`\n🔑 CÓDIGO DE PAREAMENTO: ${pairingCode}\n`);
-      } catch (err) {}
-    }, 4000);
-  }
 
   sock.ev.on('creds.update', saveCreds);
 
