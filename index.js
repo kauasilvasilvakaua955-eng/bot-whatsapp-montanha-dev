@@ -12,8 +12,7 @@ const KEY_PATH = path.join(__dirname, 'Key_fullacess.json');
 
 const ownerInteractiveSessions = new Map();
 const spamTracker = new Map();
-const tictactoeGames = new Map();
-const tictactoeInvites = new Map();
+const CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbEDNzxFCCoUo724eo45';
 
 function loadConfig() {
   try {
@@ -29,8 +28,7 @@ function saveConfig(cfg) {
 
 function loadKey() {
   try {
-    const data = JSON.parse(fs.readFileSync(KEY_PATH, 'utf-8'));
-    return data.secretKey || "mtn";
+    return JSON.parse(fs.readFileSync(KEY_PATH, 'utf-8')).secretKey || "mtn";
   } catch {
     return "mtn";
   }
@@ -40,7 +38,6 @@ function loadDatabase() {
   if (!fs.existsSync(DB_PATH)) {
     const defaultData = {
       ownerJid: null,
-      ownerName: "MONTANHA DEV",
       ownerNumber: "5562982520428",
       rentedGroups: {},
       blacklistedUsers: [],
@@ -57,25 +54,28 @@ function loadDatabase() {
       userOres: {},
       cooldowns: {},
       shopProducts: {},
-      gameConfigs: { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 },
-      diceWinStreak: {},
-      suggestionCounter: 1,
-      requestCounter: 1,
       rentalPlans: {
-        "teste": { name: "Teste 1 Hora", hours: 1, price: 2.00, fee: 0.0 },
-        "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 4.50, fee: 0.50 },
-        "3_dias": { name: "3 Dias de Aluguel", days: 3, price: 12.00, fee: 1.00 },
-        "5_dias": { name: "5 Dias de Aluguel", days: 5, price: 18.00, fee: 1.50 },
-        "7_dias": { name: "7 Dias de Aluguel", days: 7, price: 25.00, fee: 2.00 },
-        "15_dias": { name: "15 Dias de Aluguel", days: 15, price: 50.00, fee: 5.00 },
-        "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 90.00, fee: 30.0 }
+        "teste": { name: "Teste 1 Hora", days: 0, hours: 1, price: 2.00, feePercent: 0, type: "teste" },
+        "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 4.50, feePercent: 10, type: "temp" },
+        "7_dias": { name: "7 Dias de Aluguel", days: 7, price: 25.00, feePercent: 10, type: "temp" },
+        "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 90.00, feePercent: 30, type: "temp" },
+        "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50, type: "permanente" }
       }
     };
     fs.writeFileSync(DB_PATH, JSON.stringify(defaultData, null, 2));
     return defaultData;
   }
   try {
-    return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+    const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+    if (!data.rentalPlans) {
+      data.rentalPlans = {
+        "teste": { name: "Teste 1 Hora", days: 0, hours: 1, price: 2.00, feePercent: 0, type: "teste" },
+        "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 4.50, feePercent: 10, type: "temp" },
+        "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 90.00, feePercent: 30, type: "temp" },
+        "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50, type: "permanente" }
+      };
+    }
+    return data;
   } catch {
     return {};
   }
@@ -85,31 +85,10 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-function getBalance(db, userJid) {
-  if (db.wallets[userJid] === undefined) {
-    db.wallets[userJid] = 10;
-    saveDatabase(db);
-  }
-  return db.wallets[userJid];
-}
-
-function updateBalance(db, userJid, amount) {
-  const current = getBalance(db, userJid);
-  db.wallets[userJid] = Math.max(0, current + amount);
-  saveDatabase(db);
-  return db.wallets[userJid];
-}
-
-function isGroupRented(rentedGroups, groupJid) {
-  const group = rentedGroups[groupJid];
-  if (!group || !group.expireAt) return false;
-  return Date.now() < group.expireAt;
-}
-
 async function safeSendMessage(sock, jid, content, options = {}) {
   try {
     return await sock.sendMessage(jid, content, options);
-  } catch (err) {
+  } catch {
     return null;
   }
 }
@@ -205,7 +184,7 @@ async function startBot() {
         senderJid.split('@')[0] === db.ownerJid.split('@')[0]
       );
 
-      // SESSÕES INTERATIVAS DO DONO E SETOWNER COM CHAVE SECRETA
+      // SESSÕES INTERATIVAS DO DONO E SETOWNER
       if (ownerInteractiveSessions.has(senderJid)) {
         const session = ownerInteractiveSessions.get(senderJid);
 
@@ -220,102 +199,88 @@ async function startBot() {
             await safeSendMessage(sock, from, { text: `⚜️ *CADASTRADO COM SUCESSO!*\n\n👑 Você foi reconhecido como o Dono Supremo de ${cfg.BOT_NAME}!` }, { quoted: msg });
             await safeSendMessage(sock, from, { text: `🤖 Olá chefe(a) 👑, estou a suas ordens ⚜️🚀` }, { quoted: msg });
           } else {
-            await safeSendMessage(sock, from, { text: `🚫 *CHAVE INCORRETA!* A chave secreta informada não confere com o arquivo de segurança.` }, { quoted: msg });
+            await safeSendMessage(sock, from, { text: `🚫 *CHAVE INCORRETA!* A chave secreta informada não confere.` }, { quoted: msg });
           }
           continue;
         }
 
-        if (session.step === 'CONFIG_BOT_NAME') {
-          cfg.BOT_NAME = trimmedText;
-          saveConfig(cfg);
-          ownerInteractiveSessions.delete(senderJid);
-          await safeSendMessage(sock, from, { text: `✅ Nome do bot alterado para: *${trimmedText}*` }, { quoted: msg });
-          continue;
-        }
-        if (session.step === 'CONFIG_OWNER_NAME') {
-          cfg.OWNER_NAME = trimmedText;
-          saveConfig(cfg);
-          ownerInteractiveSessions.delete(senderJid);
-          await safeSendMessage(sock, from, { text: `✅ Nome do Owner alterado para: *${trimmedText}*` }, { quoted: msg });
-          continue;
-        }
-        if (session.step === 'CONFIG_COMPANY_NAME') {
-          cfg.COMPANY_NAME = trimmedText;
-          saveConfig(cfg);
-          ownerInteractiveSessions.delete(senderJid);
-          await safeSendMessage(sock, from, { text: `✅ Nome da Equipe alterado para: *${trimmedText}*` }, { quoted: msg });
-          continue;
-        }
-        if (session.step === 'CONFIG_SET_API') {
-          cfg.PURINCASH_API = trimmedText;
-          saveConfig(cfg);
-          ownerInteractiveSessions.delete(senderJid);
-          await safeSendMessage(sock, from, { text: `✅ API Key da PurinCash configurada com sucesso!` }, { quoted: msg });
-          continue;
-        }
-        if (session.step === 'CONFIG_SET_SECRET') {
-          cfg.PURINCASH_SECRET = trimmedText;
-          saveConfig(cfg);
-          ownerInteractiveSessions.delete(senderJid);
-          await safeSendMessage(sock, from, { text: `✅ Secret Key da PurinCash configurada com sucesso!` }, { quoted: msg });
-          continue;
-        }
-      }
-
-      // PROTEÇÕES AVANÇADAS EM GRUPOS
-      if (isGroup && !isOwner) {
-        const settings = db.groupSettings[from] || {};
-
-        // Anti-Fake (DDI diferente de 55)
-        if (settings.antifakes && !userNumber.startsWith('55')) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {});
-          await sock.groupParticipantsUpdate(from, [senderJid], 'remove').catch(() => {});
-          await safeSendMessage(sock, from, { text: `🛡️ 🚫 @${userNumber} foi banido automaticamente (Anti-Fakes: Apenas números do Brasil +55 são permitidos).`, mentions: [senderJid] });
+        if (session.step === 'CREATE_PLAN_ID') {
+          session.planId = trimmedText.toLowerCase().replace(/\s+/g, '_');
+          session.step = 'CREATE_PLAN_NAME';
+          ownerInteractiveSessions.set(senderJid, session);
+          await safeSendMessage(sock, from, { text: `📝 Digite o **Nome Exibido** do plano (ex: Plano Trimestral):` }, { quoted: msg });
           continue;
         }
 
-        // Anti-Spam
-        if (settings.antispam) {
-          const now = Date.now();
-          if (!spamTracker.has(senderJid)) spamTracker.set(senderJid, []);
-          const userMsgs = spamTracker.get(senderJid).filter(t => now - t < 3000);
-          userMsgs.push(now);
-          spamTracker.set(senderJid, userMsgs);
+        if (session.step === 'CREATE_PLAN_NAME') {
+          session.planName = trimmedText;
+          session.step = 'CREATE_PLAN_DAYS';
+          ownerInteractiveSessions.set(senderJid, session);
+          await safeSendMessage(sock, from, { text: `📅 Quantos **Dias** durará o plano? (Digite \`9999\` para Plano Permanente):` }, { quoted: msg });
+          continue;
+        }
 
-          if (userMsgs.length >= 5) {
-            await sock.sendMessage(from, { delete: msg.key }).catch(() => {});
-            await safeSendMessage(sock, from, { text: `🛡️ ⚠️ @${userNumber} teve a mensagem apagada por motivo de Anti-Spam!`, mentions: [senderJid] });
+        if (session.step === 'CREATE_PLAN_DAYS') {
+          const days = parseInt(trimmedText);
+          if (isNaN(days) || days <= 0) {
+            await safeSendMessage(sock, from, { text: `⚠️ Informe um número válido de dias.` }, { quoted: msg });
             continue;
           }
+          session.planDays = days;
+          session.step = 'CREATE_PLAN_PRICE';
+          ownerInteractiveSessions.set(senderJid, session);
+          
+          const isPerm = days >= 3650;
+          const minText = isPerm ? "Mínimo obrigatório de R$ 150,00 para planos permanentes!" : "Digite o valor em Reais:";
+          await safeSendMessage(sock, from, { text: `💵 ${minText}` }, { quoted: msg });
+          continue;
         }
 
-        // Filtros Anti específicos
-        if (settings.antimensagens && (msg.message.conversation || msg.message.extendedTextMessage)) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {}); continue;
-        }
-        if (settings.antifotos && msg.message.imageMessage) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {}); continue;
-        }
-        if (settings.anti_audios && msg.message.audioMessage) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {}); continue;
-        }
-        if (settings.antilocalizacao && msg.message.locationMessage) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {}); continue;
-        }
-        if (settings.antiarquivos && msg.message.documentMessage) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {}); continue;
-        }
-        if (settings.antifigurinhas && msg.message.stickerMessage) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {}); continue;
-        }
-        if (settings.anticatalogos && msg.message.productMessage) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {}); continue;
-        }
-        if (settings.antienquetes && msg.message.pollCreationMessage) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {}); continue;
-        }
-        if (settings.anticontatos && msg.message.contactMessage) {
-          await sock.sendMessage(from, { delete: msg.key }).catch(() => {}); continue;
+        if (session.step === 'CREATE_PLAN_PRICE') {
+          const price = parseFloat(trimmedText.replace(',', '.'));
+          const isPerm = session.planDays >= 3650;
+
+          if (isNaN(price) || price <= 0) {
+            await safeSendMessage(sock, from, { text: `⚠️ Valor inválido.` }, { quoted: msg });
+            continue;
+          }
+
+          if (isPerm && price < 150.00) {
+            await safeSendMessage(sock, from, { text: `🚫 *VALOR PROIBIDO!* O valor mínimo para planos permanentes deve ser de pelo menos **R$ 150,00**.\nDigite um valor válido:` }, { quoted: msg });
+            continue;
+          }
+
+          let feePercent = 10; // Abaixo de 30 dias
+          let pType = "temp";
+
+          if (session.planDays > 30 && session.planDays < 3650) {
+            feePercent = 30; // Acima de 30 dias
+          } else if (session.planDays >= 3650) {
+            feePercent = 50; // Permanente
+            pType = "permanente";
+          } else if (session.planDays <= 1) {
+            feePercent = 10;
+          }
+
+          db.rentalPlans[session.planId] = {
+            name: session.planName,
+            days: session.planDays,
+            price: price,
+            feePercent: feePercent,
+            type: pType
+          };
+          saveDatabase(db);
+          ownerInteractiveSessions.delete(senderJid);
+
+          await safeSendMessage(sock, from, { 
+            text: `✅ *PLANO CRIADO COM SUCESSO!*\n\n` +
+                  `📦 ID: \`${session.planId}\`\n` +
+                  `🏷️ Nome: ${session.planName}\n` +
+                  `⏳ Duração: ${session.planDays} dias\n` +
+                  `💵 Preço: R$ ${price.toFixed(2)}\n` +
+                  `📊 Taxa de Serviço Automática (Sua Comissao): *${feePercent}%*` 
+          }, { quoted: msg });
+          continue;
         }
       }
 
@@ -324,20 +289,22 @@ async function startBot() {
       const command = trimmedText.split(' ')[0].toLowerCase();
       const args = trimmedText.split(' ').slice(1);
 
-      // COMANDO FIXO E IMUNE /DEV
+      // COMANDO FIXO E IMUNE /DEV COM O LINK DO CANAL OFICIAL
       if (command === '/dev') {
         const devText = `🤖 *INFORMATIONS & CREDITS — LUNAR SYSTEM ©* ⚜️\n\n` +
           `👑 *Desenvolvedor Chefe:* Montanha Dev\n` +
           `📱 *Contato Oficial:* +55 62 98252-0428\n` +
-          `🛡️ *Equipe / Empresa:* Lunar System ©\n\n` +
-          `⚠️ *Aviso Legal:* Este bot foi desenvolvido para ser comercializado e distribuído exclusivamente através dos canais oficiais do criador. Caso não tenha adquirido ou recebido através de um vídeo oficial do Montanha Dev, desconfie e entre em contato imediatamente!\n\n` +
+          `🛡️ *Empresa / Equipe:* Lunar System ©\n\n` +
+          `📢 *Canal Oficial de Atualizações (Entre para receber melhorias e novas versões):*\n` +
+          `👉 ${CHANNEL_LINK}\n\n` +
+          `⚠️ *Aviso:* Este bot está em constante atualização e mudança no GitHub. Mantenha sempre seu repositório atualizado!\n\n` +
           `✨ *Lunar System — Automação Profissional* 🚀`;
 
         await safeSendMessage(sock, from, { text: devText }, { quoted: msg });
         continue;
       }
 
-      // COMANDO /SETOWNER COM CHAVE SECRETA
+      // COMANDO /SETOWNER
       if (command === '/setowner') {
         ownerInteractiveSessions.set(senderJid, { step: 'SETOWNER_KEY' });
         const reqKeyMsg = `⚜️ *REGISTRO DE DONO SUPREMO — ${cfg.BOT_NAME}* 👑\n\n` +
@@ -348,80 +315,63 @@ async function startBot() {
         continue;
       }
 
-      // COMANDOS DE GATEWAY: PURINCASH E MAGNUSPAY
+      // GESTÃO DE ALUGUEL E CRIAÇÃO DE PLANOS
+      if (command === '/criaraluguel' && isOwner) {
+        ownerInteractiveSessions.set(senderJid, { step: 'CREATE_PLAN_ID' });
+        await safeSendMessage(sock, from, { text: `🛠️ *CRIADOR DE PLANO DE ALUGUEL* 💼\n\nDigite o **ID único** do plano (ex: \`trimestral\`, \`anual\`, \`permanente\`, sem espaços):` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/listarlugueisconfig' || command === '/aluguelconfig') {
+        const plans = db.rentalPlans || {};
+        let rep = `📋 *TABELA DE PLANOS DE ALUGUEL ATIVOS* 💼\n\n`;
+        for (const [key, p] of Object.entries(plans)) {
+          rep += `🆔 ID: \`${key}\`\n` +
+            `🏷️ Nome: ${p.name}\n` +
+            `⏳ Duração: ${p.days === 9999 ? 'Permanente' : p.days + ' dias'}\n` +
+            `💵 Preço: R$ ${p.price.toFixed(2)}\n` +
+            `📊 Taxa Automática (Sua Comissao): *${p.feePercent}%*\n` +
+            `──────────────────────────\n`;
+        }
+        await safeSendMessage(sock, from, { text: rep }, { quoted: msg });
+        continue;
+      }
+
+      // COMANDOS DE GATEWAY
       if (command === '/purincash') {
         const purinInfo = `💳 *GATEWAY DE PAGAMENTOS — PURINCASH* 🏦\n\n` +
-          `🔹 *Sobre:* A PurinCash é a infraestrutura ideal para receber via PIX, cartão e boleto com alta conversão e API em tempo real.\n` +
-          `💵 *Taxas e Custos:* R$ 0,50 por venda aprovada.\n\n` +
-          `🛠️ *Como integrar e pegar a API Key:*\n` +
-          `1️⃣ Acesse o site oficial: \`https://purincash.com/\`\n` +
-          `2️⃣ Crie sua conta gratuita com os dados da sua loja.\n` +
-          `3️⃣ No seu painel, vá em Integrações / API e copie sua \`API Key\` e seu \`Secret\`.\n` +
-          `4️⃣ Cadastre no bot usando os comandos:\n` +
-             `   👉 \`/setapi <sua_api_key>\`\n` +
-             `   👉 \`/setsecret <seu_secret>\`\n\n` +
-          `✨ *Lunar System © Integration* 🚀`;
-
+          `🔹 *Sobre:* Infraestrutura de PIX e pagamentos em tempo real.\n` +
+          `🛠️ *Como integrar:*\n` +
+          `1️⃣ Acesse \`https://purincash.com/\` e crie sua conta.\n` +
+          `2️⃣ Copie sua API Key e seu Secret.\n` +
+          `3️⃣ Use \`/setapi <chave>\` e \`/setsecret <secret>\``;
         await safeSendMessage(sock, from, { text: purinInfo }, { quoted: msg });
         continue;
       }
 
       if (command === '/magnuspay') {
         const magnusInfo = `💳 *GATEWAY DE PAGAMENTOS — MAGNUSPAY* 🏦\n\n` +
-          `🔹 *Sobre:* MagnusPay é o gateway focado em PMEs com PIX integrado, cripto e suporte a cartões de crédito.\n` +
-          `💵 *Taxas e Custos:* 1% + R$ 0,50 por PIX recebido (com opção de repasse automático ao pagador).\n\n` +
-          `🛠️ *Como integrar:*\n` +
-          `1️⃣ Acesse o site oficial: \`https://magnuspay.com.br/\`\n` +
-          `2️⃣ Abra sua conta gratuita em segundos.\n` +
-          `3️⃣ Obtenha suas credenciais de API no painel de desenvolvedor.\n\n` +
-          `✨ *Lunar System © Integration* 🚀`;
-
+          `🔹 *Sobre:* Gateway parceiro focado em automações.\n` +
+          `🛠️ Acesse \`https://magnuspay.com.br/\` para obter suas credenciais.`;
         await safeSendMessage(sock, from, { text: magnusInfo }, { quoted: msg });
         continue;
       }
 
       if (command === '/setapi' && isOwner) {
-        if (!args[0]) {
-          ownerInteractiveSessions.set(senderJid, { step: 'CONFIG_SET_API' });
-          await safeSendMessage(sock, from, { text: `⚙️ Envie a nova **API Key** da PurinCash:` }, { quoted: msg });
-        } else {
-          cfg.PURINCASH_API = args[0];
-          saveConfig(cfg);
-          await safeSendMessage(sock, from, { text: `✅ API Key atualizada com sucesso!` }, { quoted: msg });
-        }
+        cfg.PURINCASH_API = args[0] || '';
+        saveConfig(cfg);
+        await safeSendMessage(sock, from, { text: `✅ API Key salva com sucesso!` }, { quoted: msg });
         continue;
       }
 
       if (command === '/setsecret' && isOwner) {
-        if (!args[0]) {
-          ownerInteractiveSessions.set(senderJid, { step: 'CONFIG_SET_SECRET' });
-          await safeSendMessage(sock, from, { text: `⚙️ Envie o novo **Secret** da PurinCash:` }, { quoted: msg });
-        } else {
-          cfg.PURINCASH_SECRET = args[0];
-          saveConfig(cfg);
-          await safeSendMessage(sock, from, { text: `✅ Secret Key atualizada com sucesso!` }, { quoted: msg });
-        }
+        cfg.PURINCASH_SECRET = args[0] || '';
+        saveConfig(cfg);
+        await safeSendMessage(sock, from, { text: `✅ Secret Key salva com sucesso!` }, { quoted: msg });
         continue;
       }
 
-      // COMANDOS DE EDIÇÃO DAS INFORMAÇÕES DO BOT
-      if (command === '/editbotname' && isOwner) {
-        ownerInteractiveSessions.set(senderJid, { step: 'CONFIG_BOT_NAME' });
-        await safeSendMessage(sock, from, { text: `🤖 Envie o novo **Nome do Bot**:` }, { quoted: msg });
-        continue;
-      }
-      if (command === '/editownername' && isOwner) {
-        ownerInteractiveSessions.set(senderJid, { step: 'CONFIG_OWNER_NAME' });
-        await safeSendMessage(sock, from, { text: `👑 Envie o novo **Nome do Owner**:` }, { quoted: msg });
-        continue;
-      }
-      if (command === '/editequipe' && isOwner) {
-        ownerInteractiveSessions.set(senderJid, { step: 'CONFIG_COMPANY_NAME' });
-        await safeSendMessage(sock, from, { text: `⚜️ Envie o novo **Nome da Empresa/Equipe**:` }, { quoted: msg });
-        continue;
-      }
-
-      // MENU DO DONO & CONFIGURAÇÕES
+      // MENU DO DONO
       if (command === '/menudono') {
         if (!isOwner) {
           await safeSendMessage(sock, from, { text: "❌ Comando restrito ao Dono Supremo!" }, { quoted: msg });
@@ -429,49 +379,17 @@ async function startBot() {
         }
 
         const donoMenu = `🤖 *${cfg.BOT_NAME} — PAINEL DO DONO* 👑\n\n` +
-          `💎 ⚙️ CONFIGURAÇÕES E IDENTIDADE\n` +
-          `› \`/editbotname\` - Altera o nome do bot\n` +
-          `› \`/editownername\` - Altera o nome do owner\n` +
-          `› \`/editequipe\` - Altera o nome da equipe\n\n` +
+          `💼 💰 GESTÃO DE ALUGUEL & TAXAS\n` +
+          `› \`/criaraluguel\` - Cria novo plano (Mensal, Anual, Permanente)\n` +
+          `› \`/aluguelconfig\` - Lista todos os planos e taxas\n\n` +
           `💳 💸 GATEWAYS DE PAGAMENTO\n` +
-          `› \`/purincash\` - Documentação e tutorial PurinCash\n` +
-          `› \`/magnuspay\` - Documentação MagnusPay\n` +
-          `› \`/setapi\` - Configura a API Key\n` +
-          `› \`/setsecret\` - Configura o Secret Key\n\n` +
-          `🛡️ ⚜️ GERENCIAMENTO & SISTEMA\n` +
-          `› \`/dev\` - Exibe créditos oficiais e imunes\n` +
-          `› \`/listalugueis\` - Lista grupos alugados\n` +
-          `› \`/ang\` - Dispara comunicado global\n\n` +
+          `› \`/purincash\` / \`/magnuspay\` - Info de gateways\n` +
+          `› \`/setapi\` / \`/setsecret\` - Configura credenciais\n\n` +
+          `🛡️ ⚜️ SISTEMA\n` +
+          `› \`/dev\` - Créditos e canal oficial de updates\n\n` +
           `✦ ${cfg.COMPANY_NAME} ✨`;
 
         await safeSendMessage(sock, from, { text: donoMenu }, { quoted: msg });
-        continue;
-      }
-
-      // PROTEÇÕES AVANÇADAS CONFIGURAÇÃO EM GRUPO (ADM)
-      if (isGroup && ['/antispam', '/antifakes', '/antimensagens', '/antifotos', '/anti_audios', '/antilocalizacao', '/antiarquivos', '/antifigurinhas', '/anticatalogos', '/antienquetes', '/anticontatos'].includes(command)) {
-        const groupMetadata = await sock.groupMetadata(from).catch(() => null);
-        const participants = groupMetadata?.participants || [];
-        const senderParticipant = participants.find(p => p.id === senderJid);
-        const isSenderAdmin = senderParticipant?.admin === 'admin' || senderParticipant?.admin === 'superadmin';
-
-        if (!isSenderAdmin && !isOwner) {
-          await safeSendMessage(sock, from, { text: "⚠️ Apenas administradores podem configurar proteções!" }, { quoted: msg });
-          continue;
-        }
-
-        const stateArg = args[0]?.toLowerCase();
-        if (stateArg !== 'on' && stateArg !== 'off') {
-          await safeSendMessage(sock, from, { text: `⚠️ Uso correto: \`${command} on\` ou \`${command} off\`` }, { quoted: msg });
-          continue;
-        }
-
-        if (!db.groupSettings[from]) db.groupSettings[from] = {};
-        const settingKey = command.replace('/', '');
-        db.groupSettings[from][settingKey] = (stateArg === 'on');
-        saveDatabase(db);
-
-        await safeSendMessage(sock, from, { text: `🛡️ Proteção \`${settingKey}\` alterada com sucesso para: *${stateArg.toUpperCase()}* 🟢` });
         continue;
       }
 
@@ -479,15 +397,10 @@ async function startBot() {
       if (command === '/menu') {
         const menuText = `🤖 *${cfg.BOT_NAME} — MENU PRINCIPAL* ⚜️\n\n` +
           `💎 📋 MENUS & UTILITÁRIOS\n` +
-          `› \`/menu\` - Exibe este menu principal\n` +
-          `› \`/menudono\` - Painel de controle do dono\n` +
-          `› \`/dev\` - Informações e créditos oficiais\n` +
-          `› \`/purincash\` - Info e docs de pagamentos\n` +
-          `› \`/magnuspay\` - Info MagnusPay\n\n` +
-          `🛡️ ⚙️ PROTEÇÕES AVANÇADAS (ADM)\n` +
-          `› \`/antispam <on/off>\` - Anti-flood\n` +
-          `› \`/antifakes <on/off>\` - Bloqueio de DDI gringo\n` +
-          `› \`/anti fotos <on/off>\` - Bloqueio de mídias\n\n` +
+          `› \`/menu\` - Exibe este menu\n` +
+          `› \`/menudono\` - Painel do dono\n` +
+          `› \`/dev\` - Créditos e canal oficial de atualizações\n` +
+          `› \`/purincash\` / \`/magnuspay\` - Info de pagamentos\n\n` +
           `✦ ${cfg.COMPANY_NAME} ✨`;
 
         await safeSendMessage(sock, from, { text: menuText }, { quoted: msg });
