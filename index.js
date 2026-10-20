@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage, getContentType } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
@@ -123,12 +123,6 @@ async function safeSendMessage(sock, jid, content, options = {}) {
   } catch {
     return null;
   }
-}
-
-function extractPixString(chargeObj) {
-  if (!chargeObj) return null;
-  if (typeof chargeObj === 'string') return chargeObj;
-  return chargeObj.pix?.brCode || chargeObj.pix?.code || chargeObj.brCode || chargeObj.pixCopiaECola || chargeObj.code || null;
 }
 
 async function startBot() {
@@ -292,20 +286,6 @@ async function startBot() {
       const command = trimmedText.split(' ')[0].toLowerCase();
       const args = trimmedText.split(' ').slice(1);
 
-      // COMANDO /DEV COM LINK DO CANAL OFICIAL
-      if (command === '/dev') {
-        const CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbEDNzxFCCoUo724eo45';
-        const devText = `🤖 *INFORMATIONS & CREDITS — LUNAR SYSTEM ©* ⚜️\n\n` +
-          `👑 *Desenvolvedor Chefe:* Montanha Dev\n` +
-          `📱 *Contato Oficial:* +55 62 98252-0428\n` +
-          `🛡️ *Empresa / Equipe:* Lunar System ©\n\n` +
-          `📢 *Canal Oficial de Atualizações:*\n` +
-          `👉 ${CHANNEL_LINK}\n\n` +
-          `✨ *Lunar System — Automação Profissional* 🚀`;
-        await safeSendMessage(sock, from, { text: devText }, { quoted: msg });
-        continue;
-      }
-
       // COMANDO /SETOWNER
       if (command === '/setowner') {
         ownerInteractiveSessions.set(senderJid, { step: 'SETOWNER_KEY' });
@@ -353,24 +333,98 @@ async function startBot() {
         continue;
       }
 
-      // MENU DO DONO & PRINCIPAL
+      // MENU VIP & COMANDO /REVELAR
+      if (command === '/menuvip') {
+        const vipMenu = `🌟 *MENU VIP — LUNAR SYSTEM ©* 👑\n\n` +
+          `✨ *Comandos Exclusivos VIP:*\n` +
+          `› \`/revelar\` - Responda (reply) a uma foto, vídeo ou áudio de visualização única para exibi-lo normalmente em modo público.\n\n` +
+          `✦ Lunar System — Automação Profissional 🚀`;
+        await safeSendMessage(sock, from, { text: vipMenu }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/revelar') {
+        const quotedMsg = msg.message.extendedTextMessage?.contextInfo?.quotedMessage;
+        if (!quotedMsg) {
+          await safeSendMessage(sock, from, { text: "⚠️ Responda (reply) a uma mídia de visualização única (foto, vídeo ou áudio) com `/revelar`!" }, { quoted: msg });
+          continue;
+        }
+
+        try {
+          const type = getContentType(quotedMsg);
+          const mediaMsg = quotedMsg[type];
+
+          // Verifica se é visualização única
+          if (!mediaMsg?.viewOnce && type !== 'viewOnceMessage' && type !== 'viewOnceMessageV2') {
+            await safeSendMessage(sock, from, { text: "⚠️ A mensagem respondida não parece ser uma mídia de visualização única!" }, { quoted: msg });
+            continue;
+          }
+
+          // Monta o objeto simulando a mensagem com a mídia interna para o downloadMediaMessage
+          const innerMsg = {
+            message: quotedMsg.viewOnceMessage?.message || quotedMsg.viewOnceMessageV2?.message || quotedMsg
+          };
+
+          const mediaBuffer = await downloadMediaMessage(innerMsg, 'buffer', {}, { pino });
+          const caption = mediaMsg.caption || "🔓 *Mídia revelada com sucesso pela Lunar System ©!* ✨";
+
+          if (type.includes('image') || mediaMsg.mimetype?.includes('image')) {
+            await safeSendMessage(sock, from, { image: mediaBuffer, caption: caption }, { quoted: msg });
+          } else if (type.includes('video') || mediaMsg.mimetype?.includes('video')) {
+            await safeSendMessage(sock, from, { video: mediaBuffer, caption: caption }, { quoted: msg });
+          } else if (type.includes('audio') || mediaMsg.mimetype?.includes('audio')) {
+            await safeSendMessage(sock, from, { audio: mediaBuffer, mimetype: 'audio/mp4', ptt: true }, { quoted: msg });
+          } else {
+            await safeSendMessage(sock, from, { document: mediaBuffer, mimetype: mediaMsg.mimetype || 'application/octet-stream', fileName: 'revelado.bin', caption: caption }, { quoted: msg });
+          }
+        } catch (e) {
+          await safeSendMessage(sock, from, { text: `❌ Erro ao revelar mídia: ${e.message}` }, { quoted: msg });
+        }
+        continue;
+      }
+
+      // COMANDO /PING
+      if (command === '/ping') {
+        const start = Date.now();
+        await safeSendMessage(sock, from, { text: `🏓 Pong! Latência: ${Date.now() - start}ms | Lunar System 100% Operacional.` }, { quoted: msg });
+        continue;
+      }
+
+      // MENU DO DONO & PRINCIPAL (COM O /DEV NO FINAL)
       if (command === '/menudono' && isOwner) {
+        const CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbEDNzxFCCoUo724eo45';
         const donoMenu = `🤖 *PAINEL DO DONO* 👑\n\n` +
           `› \`/criaraluguel\` - Cria plano personalizado\n` +
           `› \`/aluguelconfig\` - Lista planos e taxas\n` +
-          `› \`/dev\` - Créditos e canal\n` +
-          `› \`/purincash\` / \`/magnuspay\` - Gateways`;
+          `› \`/purincash\` / \`/magnuspay\` - Gateways\n` +
+          `› \`/dev\` - Créditos e canal oficial`;
         await safeSendMessage(sock, from, { text: donoMenu }, { quoted: msg });
         continue;
       }
 
       if (command === '/menu') {
+        const CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbEDNzxFCCoUo724eo45';
         const menuText = `🤖 *MENU PRINCIPAL — LUNAR SYSTEM* ⚜️\n\n` +
           `› \`/menu\` - Exibe este menu\n` +
+          `› \`/menuvip\` - Acessa o menu VIP\n` +
           `› \`/menudono\` - Painel do dono\n` +
-          `› \`/dev\` - Créditos e canal oficial\n` +
-          `› \`/purincash\` / \`/magnuspay\` - Info de gateways`;
+          `› \`/ping\` - Latência do bot\n` +
+          `› \`/dev\` - Créditos e canal oficial`;
         await safeSendMessage(sock, from, { text: menuText }, { quoted: msg });
+        continue;
+      }
+
+      // COMANDO /DEV POR ÚLTIMO
+      if (command === '/dev') {
+        const CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbEDNzxFCCoUo724eo45';
+        const devText = `🤖 *INFORMATIONS & CREDITS — LUNAR SYSTEM ©* ⚜️\n\n` +
+          `👑 *Desenvolvedor Chefe:* Montanha Dev\n` +
+          `📱 *Contato Oficial:* +55 62 98252-0428\n` +
+          `🛡️ *Empresa / Equipe:* Lunar System ©\n\n` +
+          `📢 *Canal Oficial de Atualizações:*\n` +
+          `👉 ${CHANNEL_LINK}\n\n` +
+          `✨ *Lunar System — Automação Profissional* 🚀`;
+        await safeSendMessage(sock, from, { text: devText }, { quoted: msg });
         continue;
       }
 
