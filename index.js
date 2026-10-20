@@ -2,6 +2,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 const QRCode = require('qrcode');
 const purincash = require('./services/purincash');
 
@@ -45,25 +46,6 @@ function loadKey() {
   }
 }
 
-const ORES = {
-  carvao: { id: "carvao", name: "Carvão", rarity: 0.40, basePrice: 2, icon: "⬛" },
-  cobre: { id: "cobre", name: "Cobre", rarity: 0.25, basePrice: 5, icon: "🥉" },
-  ferro: { id: "ferro", name: "Ferro", rarity: 0.15, basePrice: 12, icon: "⚙️" },
-  ouro: { id: "ouro", name: "Ouro", rarity: 0.10, basePrice: 30, icon: "🪙" },
-  diamante: { id: "diamante", name: "Diamante", rarity: 0.06, basePrice: 80, icon: "💎" },
-  esmeralda: { id: "esmeralda", name: "Esmeralda", rarity: 0.03, basePrice: 150, icon: "🟢" },
-  netunerita: { id: "netunerita", name: "Netunerita", rarity: 0.009, basePrice: 350, icon: "🌌" },
-  pedra_filosofal: { id: "pedra_filosofal", name: "Pedra Filosofal", rarity: 0.001, basePrice: 1000, icon: "🔮" }
-};
-
-const DEFAULT_PRODUCTS = {
-  "trocar_profissao": { id: "trocar_profissao", name: "Trocar de Profissão", desc: "Muda sua profissão para uma nova aleatória!", price: 150 },
-  "picareta_madeira": { id: "picareta_madeira", name: "Picareta de Madeira", desc: "Aumenta minérios e multiplicador em 2x.", price: 300, multiplier: 2, extraOres: 1, rareBoost: 1.0 },
-  "picareta_pedra": { id: "picareta_pedra", name: "Picareta de Pedra", desc: "Multiplica o valor em 3x e dá +2 minérios.", price: 800, multiplier: 3, extraOres: 2, rareBoost: 1.2 },
-  "picareta_ferro": { id: "picareta_ferro", name: "Picareta de Ferro", desc: "Multiplica em 4x e aumenta chance de raros.", price: 2000, multiplier: 4, extraOres: 3, rareBoost: 1.5 },
-  "picareta_diamante": { id: "picareta_diamante", name: "Picareta de Diamante", desc: "Multiplica em 6x com minérios valiosos.", price: 5000, multiplier: 6, extraOres: 4, rareBoost: 2.0 }
-};
-
 function loadDatabase() {
   if (!fs.existsSync(DB_PATH)) {
     const defaultData = {
@@ -84,7 +66,7 @@ function loadDatabase() {
       userPickaxes: {},
       userOres: {},
       cooldowns: {},
-      shopProducts: DEFAULT_PRODUCTS,
+      shopProducts: {},
       gameConfigs: { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 },
       diceWinStreak: {},
       suggestionCounter: 1,
@@ -116,7 +98,7 @@ function loadDatabase() {
     if (!data.userPickaxes) data.userPickaxes = {};
     if (!data.userOres) data.userOres = {};
     if (!data.cooldowns) data.cooldowns = {};
-    if (!data.shopProducts) data.shopProducts = DEFAULT_PRODUCTS;
+    if (!data.shopProducts) data.shopProducts = {};
     if (!data.gameConfigs) data.gameConfigs = { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 };
     if (!data.diceWinStreak) data.diceWinStreak = {};
     if (!data.rentalPlans) data.rentalPlans = {
@@ -126,7 +108,7 @@ function loadDatabase() {
     };
     return data;
   } catch {
-    return { ownerJid: null, ownerName: "MONTANHA DEV", ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, blacklistedUsers: [], customCommands: {}, groupSettings: {}, partners: {}, groupSchedules: {}, mutedUsers: {}, wallets: {}, groupRequests: {}, suggestions: {}, userProfessions: {}, userPickaxes: {}, userOres: {}, cooldowns: {}, shopProducts: DEFAULT_PRODUCTS, gameConfigs: { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 }, diceWinStreak: {}, suggestionCounter: 1, requestCounter: 1, rentalPlans: {} };
+    return { ownerJid: null, ownerName: "MONTANHA DEV", ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, blacklistedUsers: [], customCommands: {}, groupSettings: {}, partners: {}, groupSchedules: {}, mutedUsers: {}, wallets: {}, groupRequests: {}, suggestions: {}, userProfessions: {}, userPickaxes: {}, userOres: {}, cooldowns: {}, shopProducts: {}, gameConfigs: { minSalary: 50, workCooldownHours: 24, robCooldownHours: 12, mineCooldownHours: 6 }, diceWinStreak: {}, suggestionCounter: 1, requestCounter: 1, rentalPlans: {} };
   }
 }
 
@@ -135,39 +117,9 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-function getBalance(db, userJid) {
-  if (db.wallets[userJid] === undefined) {
-    db.wallets[userJid] = 10;
-    saveDatabase(db);
-  }
-  return db.wallets[userJid];
-}
-
-function updateBalance(db, userJid, amount) {
-  const current = getBalance(db, userJid);
-  db.wallets[userJid] = Math.max(0, current + amount);
-  saveDatabase(db);
-  return db.wallets[userJid];
-}
-
-function isGroupRented(rentedGroups, groupJid) {
-  const group = rentedGroups[groupJid];
-  if (!group || !group.expireAt) return false;
-  return Date.now() < group.expireAt;
-}
-
 async function safeSendMessage(sock, jid, content, options = {}) {
   try {
     return await sock.sendMessage(jid, content, options);
-  } catch (err) {
-    return null;
-  }
-}
-
-async function generateQrBuffer(text) {
-  if (!text || typeof text !== 'string') return null;
-  try {
-    return await QRCode.toBuffer(text, { type: 'png', margin: 2, scale: 8 });
   } catch {
     return null;
   }
@@ -177,11 +129,6 @@ function extractPixString(chargeObj) {
   if (!chargeObj) return null;
   if (typeof chargeObj === 'string') return chargeObj;
   return chargeObj.pix?.brCode || chargeObj.pix?.code || chargeObj.brCode || chargeObj.pixCopiaECola || chargeObj.code || null;
-}
-
-function extractInviteCode(text) {
-  const match = text.match(/(?:https?:\/\/)?(?:chat\.whatsapp\.com\/)?([0-9A-Za-z]{20,24})/i);
-  return match ? match[1] : null;
 }
 
 async function startBot() {
@@ -242,7 +189,6 @@ async function startBot() {
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      console.log(`⚠️ Conexão fechada. Reconectando...`);
       if (shouldReconnect) setTimeout(() => startBot(), 4000);
     } else if (connection === 'open') {
       console.log(`\n✅ ${config.BOT_NAME} CONECTADO COM SUCESSO VIA LUNAR SYSTEM ENGINE!\n`);
@@ -369,7 +315,7 @@ async function startBot() {
 
       // GATEWAYS DE PAGAMENTO (PURINCASH E MAGNUSPAY)
       if (command === '/purincash') {
-        const info = `💳 *GATEWAY — PURINCASH* 🏦\nConfigure sua API Key com \`/setapi <chave>\` e \`setsecret <secret>\`.`;
+        const info = `💳 *GATEWAY — PURINCASH* 🏦\nConfigure sua API Key com \`/setapi <chave>\` e \`/setsecret <secret>\`.`;
         await safeSendMessage(sock, from, { text: info }, { quoted: msg });
         continue;
       }
