@@ -2,7 +2,6 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
-const readline = require('readline');
 const QRCode = require('qrcode');
 const purincash = require('./services/purincash');
 
@@ -127,25 +126,7 @@ async function safeSendMessage(sock, jid, content, options = {}) {
 
 async function startBot() {
   const config = loadConfig();
-  console.log(`\n========================================`);
-  console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} - ${config.COMPANY_NAME}`);
-  console.log(`========================================\n`);
-
-  let defaultNum = config.OWNER_NUMBER;
-  const hasSession = fs.existsSync('./session') && fs.readdirSync('./session').length > 0;
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const questionAsync = (query) => new Promise((resolve) => rl.question(query, resolve));
-
-  if (!hasSession) {
-    const inputNum = await questionAsync(`📱 Digite o número do WhatsApp para conexão (ex: 5562982520428): `);
-    if (inputNum && inputNum.trim().length > 8) {
-      defaultNum = inputNum.trim().replace(/\D/g, '');
-      config.OWNER_NUMBER = defaultNum;
-      saveConfig(config);
-    }
-  }
-  rl.close();
+  let defaultNum = config.OWNER_NUMBER || FIXED_OWNER_NUMBER;
 
   const { state, saveCreds } = await useMultiFileAuthState('./session');
   const { version } = await fetchLatestBaileysVersion();
@@ -165,14 +146,9 @@ async function startBot() {
   if (!sock.authState.creds.registered && defaultNum) {
     setTimeout(async () => {
       try {
-        console.log('⏳ Solicitando código de pareamento de 8 dígitos...');
         const pairingCode = await sock.requestPairingCode(defaultNum);
-        console.log('\n========================================');
-        console.log(`🔑 CÓDIGO DE PAREAMENTO: ${pairingCode}`);
-        console.log('========================================\n');
-      } catch (err) {
-        console.error('❌ Erro ao solicitar código:', err.message);
-      }
+        console.log(`\n🔑 CÓDIGO DE PAREAMENTO: ${pairingCode}\n`);
+      } catch (err) {}
     }, 4000);
   }
 
@@ -185,7 +161,7 @@ async function startBot() {
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       if (shouldReconnect) setTimeout(() => startBot(), 4000);
     } else if (connection === 'open') {
-      console.log(`\n✅ ${config.BOT_NAME} CONECTADO COM SUCESSO VIA LUNAR SYSTEM ENGINE!\n`);
+      console.log(`\n✅ ${config.BOT_NAME} CONECTADO COM SUCESSO!\n`);
     }
   });
 
@@ -354,13 +330,11 @@ async function startBot() {
           const type = getContentType(quotedMsg);
           const mediaMsg = quotedMsg[type];
 
-          // Verifica se é visualização única
           if (!mediaMsg?.viewOnce && type !== 'viewOnceMessage' && type !== 'viewOnceMessageV2') {
             await safeSendMessage(sock, from, { text: "⚠️ A mensagem respondida não parece ser uma mídia de visualização única!" }, { quoted: msg });
             continue;
           }
 
-          // Monta o objeto simulando a mensagem com a mídia interna para o downloadMediaMessage
           const innerMsg = {
             message: quotedMsg.viewOnceMessage?.message || quotedMsg.viewOnceMessageV2?.message || quotedMsg
           };
@@ -392,7 +366,6 @@ async function startBot() {
 
       // MENU DO DONO & PRINCIPAL (COM O /DEV NO FINAL)
       if (command === '/menudono' && isOwner) {
-        const CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbEDNzxFCCoUo724eo45';
         const donoMenu = `🤖 *PAINEL DO DONO* 👑\n\n` +
           `› \`/criaraluguel\` - Cria plano personalizado\n` +
           `› \`/aluguelconfig\` - Lista planos e taxas\n` +
@@ -403,7 +376,6 @@ async function startBot() {
       }
 
       if (command === '/menu') {
-        const CHANNEL_LINK = 'https://whatsapp.com/channel/0029VbEDNzxFCCoUo724eo45';
         const menuText = `🤖 *MENU PRINCIPAL — LUNAR SYSTEM* ⚜️\n\n` +
           `› \`/menu\` - Exibe este menu\n` +
           `› \`/menuvip\` - Acessa o menu VIP\n` +
