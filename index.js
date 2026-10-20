@@ -32,7 +32,7 @@ function loadCommands(dirPath = path.join(__dirname, 'commands')) {
       }
     }
   }
-  console.log("📦 Comandos modulares carregados: " + commands.size);
+  console.log("📦 Comandos clássicos do Lunar Bot carregados: " + commands.size);
 }
 
 function loadConfig() {
@@ -167,7 +167,7 @@ async function startBot() {
         senderJid.split('@')[0] === db.ownerJid.split('@')[0]
       );
 
-      // Proteção Anti-Link
+      // Verificação Anti-Link
       if (isGroup && !isOwner) {
         const lowerText = trimmedText.toLowerCase();
         const hasLink = lowerText.includes('http://') || lowerText.includes('https://') || lowerText.includes('chat.whatsapp.com') || lowerText.includes('t.me/');
@@ -239,7 +239,7 @@ async function startBot() {
       const commandName = trimmedText.split(' ')[0].slice(1).toLowerCase();
       const args = trimmedText.split(' ').slice(1);
 
-      // Execução Dinâmica dos Comandos por Pasta
+      // Execução Dinâmica de Comandos
       if (commands.has(commandName)) {
         const cmd = commands.get(commandName);
         try {
