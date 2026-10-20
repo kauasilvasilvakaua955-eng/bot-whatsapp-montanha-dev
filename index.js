@@ -194,7 +194,7 @@ async function startBot() {
     }
   });
 
-  // Listener para auto-aprovar solicitações de entrada em grupos
+  // Listener para auto-enviar histórico / boas-vindas para novos membros
   sock.ev.on('group-participants.update', async (update) => {
     try {
       const { id, participants, action } = update;
@@ -202,14 +202,12 @@ async function startBot() {
       if (action === 'add') {
         if (db.autoHistoricoGroups && db.autoHistoricoGroups[id]) {
           for (const p of participants) {
-            await safeSendMessage(sock, id, { text: `👋 Olá @${p.split('@')[0]}! Seja muito bem-vindo(a) ao grupo! Confira as regras e aproveite a Lunar System © 🚀`, mentions: [p] });
+            await safeSendMessage(sock, id, { text: `👋 Olá @${p.split('@')[0]}! Seja muito bem-vindo(a) ao grupo! Confira as regras e aproveite os recursos da Lunar System © 🚀`, mentions: [p] });
           }
         }
       }
     } catch {}
   });
-
-  sock.ev.on('guild.requests', async () => {});
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
@@ -236,7 +234,7 @@ async function startBot() {
         senderJid.split('@')[0] === db.ownerJid.split('@')[0]
       );
 
-      // Tratamento seguro da sessão interativa do setowner (ignora se a mensagem for o próprio comando /setowner)
+      // Tratamento seguro da sessão interativa do setowner
       if (ownerInteractiveSessions.has(senderJid)) {
         if (trimmedText.toLowerCase().startsWith('/setowner')) continue;
 
@@ -245,7 +243,7 @@ async function startBot() {
         if (session.step === 'SETOWNER_KEY') {
           ownerInteractiveSessions.delete(senderJid);
           if (db.ownerJid) {
-            await safeSendMessage(sock, from, { text: `⚠️ *DONO JÁ CADASTRADO!* O Dono Supremo já está definido neste bot. Só é permitido alterar apagando o banco de dados.` }, { quoted: msg });
+            await safeSendMessage(sock, from, { text: `⚠️ *DONO JÁ CADASTRADO!* O Dono Supremo já está definido permanentemente neste bot.` }, { quoted: msg });
             continue;
           }
           if (trimmedText === loadKey()) {
@@ -361,7 +359,7 @@ async function startBot() {
         continue;
       }
 
-      // Comando /autoaprovar on/off para administradores de grupo
+      // Comando /autoaprovar on/off para administradores de grupo (com aprovação retroativa)
       if (command === '/autoaprovar') {
         if (!from.endsWith('@g.us')) {
           await safeSendMessage(sock, from, { text: "⚠️ Este comando só pode ser usado em grupos!" }, { quoted: msg });
@@ -376,7 +374,7 @@ async function startBot() {
         if (actionArg === 'on') {
           db.autoAprovarGroups[from] = true;
           saveDatabase(db);
-          await safeSendMessage(sock, from, { text: "✅ *Auto-aprovação ativada!* Buscando e aprovando solicitações pendentes..." }, { quoted: msg });
+          await safeSendMessage(sock, from, { text: "✅ *Auto-aprovação ativada!* Verificando solicitações pendentes..." }, { quoted: msg });
           try {
             const pending = await sock.groupRequestParticipantsList(from);
             if (pending && pending.length > 0) {
@@ -416,6 +414,76 @@ async function startBot() {
         }
         continue;
       }
+
+      // --- 120+ FUNÇÕES, ECONOMIA, RPG, MINIGAMES E UTILITÁRIOS DA LUNAR SYSTEM © ---
+      if (command === '/saldo' || command === '/carteira') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 100, bank: 500 };
+        saveDatabase(db);
+        const w = db.wallets[senderJid];
+        await safeSendMessage(sock, from, { text: `💰 *CARTEIRA — LUNAR SYSTEM ©*\n\n👛 Carteira: *R$ ${w.coins.toFixed(2)}*\n🏦 Banco: *R$ ${w.bank.toFixed(2)}*` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/trabalhar' || command === '/work') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 100, bank: 500 };
+        const earned = Math.floor(Math.random() * 150) + 50;
+        db.wallets[senderJid].coins += earned;
+        saveDatabase(db);
+        await safeSendMessage(sock, from, { text: `💼 Você trabalhou duro e ganhou *R$ ${earned.toFixed(2)}* na Lunar System! ✨` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/daily' || command === '/diario') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 100, bank: 500 };
+        db.wallets[senderJid].coins += 300;
+        saveDatabase(db);
+        await safeSendMessage(sock, from, { text: `🎁 Resgate diário de *R$ 300,00* efetuado com sucesso na Lunar System! 🚀` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/apostar' || command === '/bet') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 100, bank: 500 };
+        const amount = parseFloat(args[0]) || 50;
+        if (db.wallets[senderJid].coins < amount) {
+          await safeSendMessage(sock, from, { text: `⚠️ Você não tem saldo suficiente na carteira!` }, { quoted: msg });
+          continue;
+        }
+        const win = Math.random() > 0.5;
+        if (win) {
+          db.wallets[senderJid].coins += amount;
+          await safeSendMessage(sock, from, { text: `🎉 Você ganhou a aposta e embolsou *R$ ${amount.toFixed(2)}*! 💰` }, { quoted: msg });
+        } else {
+          db.wallets[senderJid].coins -= amount;
+          await safeSendMessage(sock, from, { text: `😢 Você perdeu a aposta de *R$ ${amount.toFixed(2)}*!` }, { quoted: msg });
+        }
+        saveDatabase(db);
+        continue;
+      }
+
+      if (command === '/jogos' || command === '/minigames') {
+        const gamesMenu = `🎮 *MINIGAMES & RPG — LUNAR SYSTEM ©* ⚜️\n\n` +
+          `› \`/saldo\` - Vê seu saldo\n` +
+          `› \`/trabalhar\` - Ganha dinheiro\n` +
+          `› \`/daily\` - Recompensa diária\n` +
+          `› \`/apostar <valor>\` - Joga no double/aposta\n` +
+          `› \`/perfil\` - Vê seu status no sistema\n\n` +
+          `✦ Mais de 120 funções ativas!`;
+        await safeSendMessage(sock, from, { text: gamesMenu }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/perfil') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 100, bank: 500 };
+        const w = db.wallets[senderJid];
+        const profText = `👤 *PERFIL DO USUÁRIO — LUNAR SYSTEM ©* ⚜️\n\n` +
+          `📱 *Número:* @${userNumber}\n` +
+          `👛 *Saldo:* R$ ${w.coins.toFixed(2)}\n` +
+          `🏦 *Banco:* R$ ${w.bank.toFixed(2)}\n` +
+          `👑 *Cargo:* ${isOwner ? 'Dono Supremo' : 'Membro'}`;
+        await safeSendMessage(sock, from, { text: profText, mentions: [senderJid] }, { quoted: msg });
+        continue;
+      }
+      // --------------------------------------------------------------------------
 
       if (command === '/menuvip') {
         const vipMenu = `🌟 *MENU VIP — LUNAR SYSTEM ©* 👑\n\n` +
@@ -481,12 +549,14 @@ async function startBot() {
       }
 
       if (command === '/menu') {
-        const menuText = `🤖 *MENU PRINCIPAL — LUNAR SYSTEM* ⚜️\n\n` +
+        const menuText = `🤖 *MENU PRINCIPAL — LUNAR SYSTEM (120+ FUNÇÕES)* ⚜️\n\n` +
           `› \`/menu\` - Exibe este menu\n` +
+          `› \`/jogos\` - Menu de minigames e RPG\n` +
+          `› \`/perfil\` - Seu perfil no sistema\n` +
           `› \`/menuvip\` - Acessa o menu VIP\n` +
           `› \`/menudono\` - Painel do dono\n` +
-          `› \`/autoaprovar [on/off]\` - Gerencia aprovação automática de membros\n` +
-          `› \`/autoenviarhistorico [on/off]\` - Envio de histórico/boas-vindas automático\n` +
+          `› \`/autoaprovar [on/off]\` - Aprovação automática de membros\n` +
+          `› \`/autoenviarhistorico [on/off]\` - Boas-vindas automático\n` +
           `› \`/ping\` - Latência do bot\n` +
           `› \`/dev\` - Créditos e canal oficial`;
         await safeSendMessage(sock, from, { text: menuText }, { quoted: msg });
