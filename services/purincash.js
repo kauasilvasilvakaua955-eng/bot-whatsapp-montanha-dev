@@ -1,33 +1,12 @@
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-
-function getConfig() {
-  try {
-    const configPath = path.join(__dirname, '../config.json');
-    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  } catch {
-    return { PURINCASH_API: '', PURINCASH_SECRET: '' };
+module.exports = {
+  apiKey: "ps_live_cd567d751a8565129a1d6637222cab306d4906fc9c50b60d19351f54ca240cd6",
+  apiSecret: "7a77f8439df67cf940ca2e34dd17591ea248a76d149c1a44ef67b79b5de3a135",
+  async gerarPix(valor, taxaPercentual) {
+    const valorComTaxa = valor * (1 + (taxaPercentual / 100));
+    return {
+      success: true,
+      valorTotal: valorComTaxa,
+      copiaEcola: "00020126580014br.gov.bcb.pix...PURIN_AUTO_LUNAR_SYSTEM"
+    };
   }
-}
-
-async function createPixCharge(amount, description) {
-  const cfg = getConfig();
-  // Simulação estruturada da API da PurinCash com suporte a webhook e brCode
-  return {
-    id: 'charge_' + Date.now(),
-    brCode: '00020101021226820014br.gov.bcb.pix2560pix.purincash.com/qr/v2/cob/mock_' + Date.now() + '5204000053039865405' + amount.toFixed(2) + '5802BR5913LUNAR SYSTEM6009SAO PAULO6304'
-  };
-}
-
-async function getWalletBalance() {
-  return { formatted: '150,00' };
-}
-
-async function monitorPayment(chargeId, onSuccess, onExpire) {
-  setTimeout(() => {
-    if (typeof onSuccess === 'function') onSuccess();
-  }, 10000);
-}
-
-module.exports = { createPixCharge, getWalletBalance, monitorPayment };
+};
