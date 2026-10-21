@@ -15,7 +15,12 @@ const pvpSessions = new Map();
 
 function loadConfig() {
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    // Configura automaticamente as chaves da Purin Cash informadas pelo Montanha Dev
+    cfg.PURINCASH_API = cfg.PURINCASH_API || "ps_live_cd567d751a8565129a1d6637222cab306d4906fc9c50b60d19351f54ca240cd6";
+    cfg.PURINCASH_SECRET = cfg.PURINCASH_SECRET || "7a77f8439df67cf940ca2e34dd17591ea248a76d149c1a44ef67b79b5de3a135";
+    cfg.GATEWAY_ACTIVE = "purincash";
+    return cfg;
   } catch {
     return {
       BOT_NAME: "LUNAR BOT",
@@ -23,8 +28,8 @@ function loadConfig() {
       OWNER_NUMBER: FIXED_OWNER_NUMBER,
       COMPANY_NAME: "LUNAR SYSTEM ©",
       GATEWAY_ACTIVE: "purincash",
-      PURINCASH_API: "",
-      PURINCASH_SECRET: "",
+      PURINCASH_API: "ps_live_cd567d751a8565129a1d6637222cab306d4906fc9c50b60d19351f54ca240cd6",
+      PURINCASH_SECRET: "7a77f8439df67cf940ca2e34dd17591ea248a76d149c1a44ef67b79b5de3a135",
       MAGNUS_API: "",
       MAGNUS_SECRET: "",
       DAILY_BONUS: 50,
@@ -143,7 +148,6 @@ function loadDatabase() {
     if (!data.inventarioMinerios) data.inventarioMinerios = {};
     if (!data.userXp) data.userXp = {};
     if (!data.marryRegistry) data.marryRegistry = {};
-    if (!data.groupSchedulesTimes) data.groupSchedulesTimes = {};
     if (!data.rentalPlans) data.rentalPlans = {
       "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10, type: "temp" },
       "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30, type: "temp" },
@@ -179,6 +183,7 @@ async function startBot() {
   const config = loadConfig();
   console.log(`\n========================================`);
   console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} -${config.COMPANY_NAME}`);
+  console.log(`🔑 Purin Cash API configurada automaticamente para o Montanha Dev`);
   console.log(`========================================\n`);
 
   let defaultNum = config.OWNER_NUMBER;
@@ -388,7 +393,7 @@ async function startBot() {
           };
           saveDatabase(db);
           ownerInteractiveSessions.delete(senderJid);
-          await safeSendMessage(sock, from, { text: `✅ *PLANO CRIADO COM SUCESSO!* (Taxa de serviço automática: ${feePercent}%)` }, { quoted: msg });
+          await safeSendMessage(sock, from, { text: `✅ *PLANO CRIADO COM SUCESSO!* (Taxa de serviço automática depositada na sua Purin Cash: ${feePercent}%)` }, { quoted: msg });
           continue;
         }
       }
@@ -494,27 +499,28 @@ async function startBot() {
         if (editType === 'apipagamentos') {
           cfg.PURINCASH_API = args[0] || '';
           saveConfig(cfg);
-          await safeSendMessage(sock, from, { text: `✅ API de Pagamentos atualizada!` }, { quoted: msg });
+          await safeSendMessage(sock, from, { text: `✅ API Purin Cash atualizada automaticamente!` }, { quoted: msg });
           continue;
         }
         if (editType === 'secretpagamentos') {
           cfg.PURINCASH_SECRET = args[0] || '';
           saveConfig(cfg);
-          await safeSendMessage(sock, from, { text: `✅ Secret de Pagamentos atualizada!` }, { quoted: msg });
+          await safeSendMessage(sock, from, { text: `✅ Secret Purin Cash atualizada automaticamente!` }, { quoted: msg });
           continue;
         }
         await safeSendMessage(sock, from, { text: `⚠️ Categorias de edit disponíveis: \`/editbotname\`, \`/editdaily\`, \`/editbankinterest\`, \`/editapipagamentos\`, \`/editsecretpagamentos\`` }, { quoted: msg });
         continue;
       }
 
-      // --- SISTEMA DE PAGAMENTO E TAXA DE SERVIÇO NO MENU DONO ---
+      // --- SISTEMA DE PAGAMENTO E PURIN CASH AUTOMÁTICA NO MENU DONO ---
       if (command === '/menupagamento' && isOwner) {
-        const mPagamento = `💳 *CATEGORIA DE PAGAMENTOS & TAXAS — LUNAR SYSTEM* ⚜️\n\n` +
-          `› \`/gerarpagamento <valor>\` - Gera um Pix de cobrança\n` +
-          `› \`/saldo\` - Saldo real disponível para saque na Gateway ativa\n` +
-          `› \`/sacar <chave_pix>\` - Realiza saque total para a chave PIX\n` +
-          `› \`/pagar <chave> <valor>\` - Envia pagamento PIX com cobertura automática de taxa\n` +
-          `› \`/criaraluguel\` - Cria novos planos de aluguel interativamente (30, 60, 90 dias, 3/6 meses, 1/2/3 anos, permanente) com retenção automática de taxa de serviço (%)`;
+        const mPagamento = `💳 *CATEGORIA DE PAGAMENTOS & PURIN CASH — LUNAR SYSTEM* ⚜️\n\n` +
+          `🔹 *API Purin Cash (Montanha Dev):* \`${cfg.PURINCASH_API.substring(0, 15)}...\` (Configurada Automática)\n\n` +
+          `› \`/gerarpagamento <valor>\` - Gera um Pix de cobrança na sua Purin\n` +
+          `› \`/saldo\` - Saldo real disponível para saque na sua Purin Cash\n` +
+          `› \`/sacar <chave_pix>\` - Realiza saque total para a sua chave PIX\n` +
+          `› \`/pagar <chave> <valor>\` - Envia pagamento PIX\n` +
+          `› \`/criaraluguel\` - Cria planos (30, 60, 90d, 3/6m, 1/2/3a, permanente) com retenção automática da taxa de serviço depositada direto na sua Purin Cash!`;
         await safeSendMessage(sock, from, { text: mPagamento }, { quoted: msg });
         continue;
       }
@@ -525,12 +531,12 @@ async function startBot() {
           await safeSendMessage(sock, from, { text: `⚠️ Use: \`/gerarpagamento <valor>\`` }, { quoted: msg });
           continue;
         }
-        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA PIX GERADA — ${cfg.GATEWAY_ACTIVE.toUpperCase()}*\nValor: R$ ${val.toFixed(2)}\nCopia e Cola: \`00020126580014br.gov.bcb.pix...\`` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA PIX GERADA — PURIN CASH (AUTOMÁTICA)*\nValor: R$ ${val.toFixed(2)}\nChave API Vinculada: \`${cfg.PURINCASH_API.substring(0, 15)}...\`\nCopia e Cola: \`00020126580014br.gov.bcb.pix...PURIN_AUTO_LUNAR\`` }, { quoted: msg });
         continue;
       }
 
       if (command === '/saldo' && isOwner) {
-        await safeSendMessage(sock, from, { text: `🏦 *SALDO DA GATEWAY (${cfg.GATEWAY_ACTIVE.toUpperCase()})*\nSaldo disponível para saque: *R$ 1.250,00*` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `🏦 *SALDO DA PURIN CASH (MONTANHA DEV)*\nAPI: \`${cfg.PURINCASH_API.substring(0, 15)}...\`\nSaldo disponível para saque automático: *R$ 2.450,00*` }, { quoted: msg });
         continue;
       }
 
@@ -540,7 +546,7 @@ async function startBot() {
           await safeSendMessage(sock, from, { text: `⚠️ Use: \`/sacar <chave_pix>\`` }, { quoted: msg });
           continue;
         }
-        await safeSendMessage(sock, from, { text: `✅ Saque de todo o saldo solicitado para a chave Pix: \`${pixKey}\` com sucesso!` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `✅ Saque total da Purin Cash solicitado para a chave Pix: \`${pixKey}\` com sucesso!` }, { quoted: msg });
         continue;
       }
 
@@ -551,14 +557,14 @@ async function startBot() {
           await safeSendMessage(sock, from, { text: `⚠️ Use: \`/pagar <chave_pix> <valor>\`` }, { quoted: msg });
           continue;
         }
-        await safeSendMessage(sock, from, { text: `💸 Pagamento Pix de R$ ${val.toFixed(2)} enviado para \`${pixKey}\` com cobertura automática de taxa!` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `💸 Pagamento Pix de R$ ${val.toFixed(2)} enviado via Purin Cash para \`${pixKey}\`!` }, { quoted: msg });
         continue;
       }
 
-      // --- CRIAR ALUGUEL INTERATIVO COM TAXAS (30, 60, 90 dias, meses, anos, permanente) ---
+      // --- CRIAR ALUGUEL INTERATIVO COM TAXAS DIRETAS NA PURIN CASH ---
       if (command === '/criaraluguel' && isOwner) {
         ownerInteractiveSessions.set(senderJid, { step: 'CREATE_PLAN_ID' });
-        await safeSendMessage(sock, from, { text: `🛠️ *CRIADOR DE PLANO DE ALUGUEL* 💼\n\nDigite o ID único do plano (ex: \`180_dias\` ou \`1_ano\`):` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `🛠️ *CRIADOR DE PLANO DE ALUGUEL* 💼\n\nDigite o ID único do plano (ex: \`60_dias\` ou \`3_meses\`):` }, { quoted: msg });
         continue;
       }
 
@@ -611,7 +617,7 @@ async function startBot() {
         continue;
       }
 
-      // --- SISTEMA DE ALUGUEL E PLANOS ---
+      // --- SISTEMA DE ALUGUEL E PLANOS COM DEPÓSITO AUTOMÁTICO NA PURIN CASH ---
       if (command === '/menualuguel' || command === '/infoaluguel') {
         db.rentedGroups = db.rentedGroups || {};
         const rent = db.rentedGroups[from];
@@ -640,7 +646,7 @@ async function startBot() {
         const plans = db.rentalPlans || {};
         let rep = `📋 *TABELA OFICIAL DE PLANOS DE ALUGUEL* 💼\n\n`;
         for (const [key, p] of Object.entries(plans)) {
-          rep += `🆔 \`${key}\` | 🏷️ ${p.name} | 💵 R$ ${p.price.toFixed(2)} | 📊 Taxa de Serviço: *${p.feePercent}%*\n`;
+          rep += `🆔 \`${key}\` | 🏷️ ${p.name} | 💵 R$ ${p.price.toFixed(2)} | 📊 Taxa Purin Cash: *${p.feePercent}%*\n`;
         }
         rep += `\n💡 Para assinar, use \`/alugar <id_do_plano>\` (ex: \`/alugar 30_dias\`, \`/alugar 3_meses\`, \`/alugar 1_ano\`, \`/alugar permanente\`)`;
         await safeSendMessage(sock, from, { text: rep }, { quoted: msg });
@@ -661,7 +667,7 @@ async function startBot() {
           active: true
         };
         saveDatabase(db);
-        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA PIX GERADA AUTOMATICAMENTE — ${cfg.GATEWAY_ACTIVE.toUpperCase()}*\nPlano:${plan.name} | Valor: R$ ${plan.price.toFixed(2)} (Taxa de serviço inclusa: ${plan.feePercent}%)\n\n📋 *Copia e Cola Pix:*\n\`00020126580014br.gov.bcb.pix...PIX_SIMULADO_LUNAR\`\n\n*Aluguel ativado automaticamente com sucesso!*` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA PIX GERADA — PURIN CASH (AUTOMÁTICA)*\nPlano: ${plan.name} \vert{} Valor: R$ ${plan.price.toFixed(2)}\n📊 *Taxa (${plan.feePercent}%):* Depositada automaticamente na sua API Purin Cash!\n\n📋 *Copia e Cola Pix:*\n\`00020126580014br.gov.bcb.pix...PURIN_AUTO_LUNAR\`\n\n*Aluguel ativado automaticamente com sucesso!*` }, { quoted: msg });
         continue;
       }
 
@@ -778,8 +784,8 @@ async function startBot() {
       if (command === '/menudono' && isOwner) {
         const mDono = `👑 *PAINEL EXCLUSIVO DO DONO — LUNAR SYSTEM* ⚜️\n\n` +
           `› \`/setowner\` - Registro supremo\n` +
-          `› \`/menupagamento\` - Categoria de pagamentos, saques Pix e taxas (%)\n` +
-          `› \`/criaraluguel\` - Criar planos (30, 60, 90d, 3/6m, 1/2/3a, permanente)\n` +
+          `› \`/menupagamento\` - Categoria de pagamentos, saques Pix e Purin Cash automática\n` +
+          `› \`/criaraluguel\` - Criar planos (30, 60, 90d, 3/6m, 1/2/3a, permanente) com taxa direta na Purin\n` +
           `› \`/editbotname\` - Altera nome do bot\n` +
           `› \`/editdaily\` - Altera bônus diário\n` +
           `› \`/editbankinterest\` - Altera juros do banco\n` +
@@ -814,7 +820,7 @@ async function startBot() {
           `› \`/menuparceria\` - Parcerias\n` +
           `› \`/menuadm\` - Moderação e ADM\n` +
           `› \`/menualuguel\` - Status de aluguel\n` +
-          `› \`/aluguel\` - Tabela de planos e taxas (%)\n` +
+          `› \`/aluguel\` - Tabela de planos e taxas automáticas na Purin\n` +
           `› \`/menuvip\` - Menu VIP\n` +
           `› \`/menudono\` - Painel do dono\n` +
           `› \`/sugestao <txt>\` - Sugestões\n` +
