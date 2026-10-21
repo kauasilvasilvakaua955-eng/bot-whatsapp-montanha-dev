@@ -1,5 +1,3 @@
-const axios = require('axios');
-
 class PurinCashService {
   constructor() {
     this.apiKey = "ps_live_cd567d751a8565129a1d6637222cab306d4906fc9c50b60d19351f54ca240cd6";
