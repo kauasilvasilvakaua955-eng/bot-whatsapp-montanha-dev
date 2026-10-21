@@ -73,6 +73,9 @@ function loadDatabase() {
       userXp: {},
       marryRegistry: {},
       groupSchedulesTimes: {},
+      systemXpGroups: {},
+      systemCasamentoGroups: {},
+      systemBancoGroups: {},
       rentalPlans: {
         "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10, type: "temp" },
         "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30, type: "temp" },
@@ -92,6 +95,9 @@ function loadDatabase() {
   try {
     const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
     data.ownerNumber = FIXED_OWNER_NUMBER;
+    if (!data.systemXpGroups) data.systemXpGroups = {};
+    if (!data.systemCasamentoGroups) data.systemCasamentoGroups = {};
+    if (!data.systemBancoGroups) data.systemBancoGroups = {};
     if (!data.rentalPlans) data.rentalPlans = {
       "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10, type: "temp" },
       "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30, type: "temp" },
@@ -106,7 +112,7 @@ function loadDatabase() {
     };
     return data;
   } catch {
-    return { ownerJid: null, ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, rentalPlans: {} };
+    return { ownerJid: null, ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, rentalPlans: {}, systemXpGroups: {}, systemCasamentoGroups: {}, systemBancoGroups: {} };
   }
 }
 
@@ -115,7 +121,6 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-// Carregador Modular de Comandos por Subpastas (1 comando = 1 arquivo)
 const commands = new Map();
 const categories = ['dono', 'adm', 'economia', 'jogos', 'util', 'aluguel', 'xp', 'casamento', 'vip'];
 for (const cat of categories) {
@@ -143,7 +148,7 @@ async function startBot() {
   const config = loadConfig();
   console.log(`\n========================================`);
   console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} -${config.COMPANY_NAME}`);
-  console.log(`📂 Sistema Modular Carregado (${commands.size} comandos em subpastas)`);
+  console.log(`📂 Sistema Modular com Toggle ON/OFF (Default OFF) Carregado`);
   console.log(`========================================\n`);
 
   let defaultNum = config.OWNER_NUMBER;
@@ -207,23 +212,6 @@ async function startBot() {
     }
   });
 
-  sock.ev.on('group-participants.update', async (update) => {
-    try {
-      const { id, participants, action } = update;
-      db = loadDatabase();
-      if (action === 'add') {
-        if (db.autoAprovarGroups && db.autoAprovarGroups[id]) {
-          try { await sock.groupRequestParticipantsUpdate(id, participants, 'approve'); } catch {}
-        }
-        if (db.autoHistoricoGroups && db.autoHistoricoGroups[id] || db.welcomeGroups && db.welcomeGroups[id]) {
-          for (const p of participants) {
-            await safeSendMessage(sock, id, { text: `👋 Olá @${p.split('@')[0]}! Seja muito bem-vindo(a) ao grupo!`, mentions: [p] });
-          }
-        }
-      }
-    } catch {}
-  });
-
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
 
@@ -240,16 +228,18 @@ async function startBot() {
 
       if (db.blacklistedUsers?.includes(senderJid)) continue;
 
-      // XP automático
-      db.userXp = db.userXp || {};
-      db.userXp[senderJid] = db.userXp[senderJid] || { xp: 0, level: 1 };
-      db.userXp[senderJid].xp += Math.floor(Math.random() * 15) + 10;
-      if (db.userXp[senderJid].xp >= db.userXp[senderJid].level * 150) {
-        db.userXp[senderJid].level += 1;
-        db.userXp[senderJid].xp = 0;
-        await safeSendMessage(sock, from, { text: `🎉 Parabéns @${userNumber}! Nível *${db.userXp[senderJid].level}* alcançado!`, mentions: [senderJid] });
+      // XP automático (Apenas se o sistema de XP estiver ON no grupo, default OFF)
+      if (db.systemXpGroups && db.systemXpGroups[from] === true) {
+        db.userXp = db.userXp || {};
+        db.userXp[senderJid] = db.userXp[senderJid] || { xp: 0, level: 1 };
+        db.userXp[senderJid].xp += Math.floor(Math.random() * 15) + 10;
+        if (db.userXp[senderJid].xp >= db.userXp[senderJid].level * 150) {
+          db.userXp[senderJid].level += 1;
+          db.userXp[senderJid].xp = 0;
+          await safeSendMessage(sock, from, { text: `🎉 Parabéns @${userNumber}! Nível *${db.userXp[senderJid].level}* alcançado!`, mentions: [senderJid] });
+        }
+        saveDatabase(db);
       }
-      saveDatabase(db);
 
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || '';
       const trimmedText = text.trim();
@@ -314,6 +304,28 @@ async function startBot() {
 
       const commandKey = trimmedText.split(' ')[0].toLowerCase();
       const args = trimmedText.split(' ').slice(1);
+
+      // Validação de sistemas OFF (default OFF)
+      if (['/nivel', '/xp', '/rankingxp'].includes(commandKey)) {
+        if (!db.systemXpGroups || db.systemXpGroups[from] !== true) {
+          await safeSendMessage(sock, from, { text: `⚠️ O sistema de XP está desativado neste grupo (Default: OFF). Um administrador pode ativar com \`/sistemaxp on\`.` }, { quoted: msg });
+          continue;
+        }
+      }
+
+      if (['/casar', '/aceitarcasorio', '/rejeitarcasorio', '/divorciar', '/casal', '/meucasamento', '/menucasamento'].includes(commandKey)) {
+        if (!db.systemCasamentoGroups || db.systemCasamentoGroups[from] !== true) {
+          await safeSendMessage(sock, from, { text: `⚠️ O sistema de casamento está desativado neste grupo (Default: OFF). Um administrador pode ativar com \`/sistemacasamento on\`.` }, { quoted: msg });
+          continue;
+        }
+      }
+
+      if (['/banco', '/menubanco', '/depositar', '/dep', '/sacar', '/sac', '/investir', '/emprestimo', '/carteira'].includes(commandKey)) {
+        if (!db.systemBancoGroups || db.systemBancoGroups[from] !== true) {
+          await safeSendMessage(sock, from, { text: `⚠️ O sistema de banco está desativado neste grupo (Default: OFF). Um administrador pode ativar com \`/sistemabanco on\`.` }, { quoted: msg });
+          continue;
+        }
+      }
 
       if (commandKey === '/setowner') {
         if (db.ownerJid) {
