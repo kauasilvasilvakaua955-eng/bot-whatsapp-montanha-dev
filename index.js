@@ -140,7 +140,6 @@ function loadDatabase() {
     if (!data.groupSchedulesTimes) data.groupSchedulesTimes = {};
     if (!data.rentalPlans) data.rentalPlans = {
       "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10 },
-      "7_dias": { name: "7 Dias de Aluguel", days: 7, price: 10.00, feePercent: 10 },
       "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30 },
       "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50 }
     };
@@ -262,6 +261,10 @@ async function startBot() {
       if (!msg.message || msg.key.fromMe) continue;
 
       const from = msg.key.remoteJid;
+
+      // 🛑 IGNORA 100% QUALQUER MENSAGEM NO PRIVADO (PV) - FUNCIONA APENAS EM GRUPOS (@g.us)
+      if (!from.endsWith('@g.us')) continue;
+
       const senderJid = msg.key.participant || msg.key.remoteJid;
       const userNumber = senderJid.split('@')[0].split(':')[0];
       const cfg = loadConfig();
@@ -323,6 +326,68 @@ async function startBot() {
           }
           continue;
         }
+      }
+
+      // Verificações automáticas de Grupo (Anti-link, Parceria, Palavras Proibidas)
+      const hasLink = /https?:\/\/|chat\.whatsapp\.com/i.test(trimmedText);
+      const isParceriaActive = db.parceriaGroups && db.parceriaGroups[from];
+
+      if (hasLink) {
+        if (isParceriaActive) {
+          const parceiroData = db.parceirosList && db.parceirosList[from] && db.parceirosList[from][senderJid];
+          if (!parceiroData || parceiroData.quota <= 0) {
+            try { await sock.sendMessage(from, { delete: msg.key }); } catch {}
+            await safeSendMessage(sock, from, { text: `⚠️ Envio de links proibido sem parceria autorizada neste grupo!`, quoted: msg });
+            continue;
+          } else {
+            parceiroData.quota -= 1;
+            saveDatabase(db);
+          }
+        } else {
+          if (db.antiLink1Groups && db.antiLink1Groups[from]) {
+            try { await sock.sendMessage(from, { delete: msg.key }); } catch {}
+            await safeSendMessage(sock, from, { text: `⚠️ Links não são permitidos neste grupo!`, quoted: msg });
+            continue;
+          } else if (db.antiLink2Groups && db.antiLink2Groups[from]) {
+            try {
+              await sock.sendMessage(from, { delete: msg.key });
+              await sock.groupParticipantsUpdate(from, [senderJid], 'remove');
+            } catch {}
+            continue;
+          } else if (db.antiLinkGeralGroups && db.antiLinkGeralGroups[from]) {
+            db.groupRequests = db.groupRequests || {};
+            db.groupRequests[from] = db.groupRequests[from] || {};
+            db.groupRequests[from][senderJid] = (db.groupRequests[from][senderJid] || 0) + 1;
+            saveDatabase(db);
+            try { await sock.sendMessage(from, { delete: msg.key }); } catch {}
+            if (db.groupRequests[from][senderJid] >= 5) {
+              try { await sock.groupParticipantsUpdate(from, [senderJid], 'remove'); } catch {}
+              await safeSendMessage(sock, from, { text: `🚫 @${userNumber} foi banido por atingir 5 avisos de link/spam!`, mentions: [senderJid] });
+            } else {
+              await safeSendMessage(sock, from, { text: `⚠️ Aviso ${db.groupRequests[from][senderJid]}/5: Proibido enviar links!` });
+            }
+            continue;
+          }
+        }
+      }
+
+      // Anti-palavras
+      if (db.antiPalavraGroups && db.antiPalavraGroups[from] && db.blockedWords && db.blockedWords.length > 0) {
+        const lowerText = trimmedText.toLowerCase();
+        const foundBlocked = db.blockedWords.some(w => lowerText.includes(w.toLowerCase()));
+        if (foundBlocked) {
+          try {
+            await sock.sendMessage(from, { delete: msg.key });
+            await safeSendMessage(sock, from, { text: `⚠️ Palavra proibida detectada e apagada!` }, { quoted: msg });
+          } catch {}
+          continue;
+        }
+      }
+
+      // Comandos personalizados
+      if (db.customCommands && db.customCommands[trimmedText.toLowerCase()]) {
+        await safeSendMessage(sock, from, { text: db.customCommands[trimmedText.toLowerCase()] }, { quoted: msg });
+        continue;
       }
 
       if (!trimmedText.startsWith('/')) continue;
@@ -391,7 +456,7 @@ async function startBot() {
       if (command === '/gerarpagamento' && isOwner) {
         const val = parseFloat(args[0]);
         if (isNaN(val) || val <= 0) {
-          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/gerarpagamento <valor>\` (ex: `/gerarpagamento 2.00`)` }, { quoted: msg });
+          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/gerarpagamento <valor>\`` }, { quoted: msg });
           continue;
         }
         await safeSendMessage(sock, from, { text: `💳 *COBRANÇA PIX GERADA — ${cfg.GATEWAY_ACTIVE.toUpperCase()}*\nValor: R$ ${val.toFixed(2)}\nCopia e Cola: \`00020126580014br.gov.bcb.pix...\`` }, { quoted: msg });
@@ -409,7 +474,7 @@ async function startBot() {
           await safeSendMessage(sock, from, { text: `⚠️ Use: \`/sacar <chave_pix>\`` }, { quoted: msg });
           continue;
         }
-        await safeSendMessage(sock, from, { text: `✅ Saque de todo o saldo da carteira solicitado para a chave Pix: \`${pixKey}\` com sucesso!` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `✅ Saque de todo o saldo solicitado para a chave Pix: \`${pixKey}\` com sucesso!` }, { quoted: msg });
         continue;
       }
 
@@ -445,14 +510,10 @@ async function startBot() {
       }
 
       if (command === '/gptime') {
-        if (!from.endsWith('@g.us')) {
-          await safeSendMessage(sock, from, { text: "⚠️ Este comando só pode ser usado em grupos!" }, { quoted: msg });
-          continue;
-        }
         const openTime = args[0];
         const closeTime = args[1];
         if (!openTime || !closeTime) {
-          await safeSendMessage(sock, from, { text: "⚠️ Use: `/gptime <abre> <fecha>` (ex: `/gptime 07:00 22:00`)" }, { quoted: msg });
+          await safeSendMessage(sock, from, { text: "⚠️ Use: `/gptime <abre> <fecha>`" }, { quoted: msg });
           continue;
         }
         db.groupSchedulesTimes = db.groupSchedulesTimes || {};
@@ -463,10 +524,6 @@ async function startBot() {
       }
 
       if (command === '/tagall') {
-        if (!from.endsWith('@g.us')) {
-          await safeSendMessage(sock, from, { text: "⚠️ Este comando só pode ser usado em grupos!" }, { quoted: msg });
-          continue;
-        }
         try {
           const metadata = await sock.groupMetadata(from);
           const participants = metadata.participants.map(p => p.id);
@@ -481,14 +538,10 @@ async function startBot() {
         continue;
       }
 
-      // --- SISTEMA DE ALUGUEL REQUISITADO ---
+      // --- SISTEMA DE ALUGUEL ---
       if (command === '/menualuguel' || command === '/infoaluguel') {
         db.rentedGroups = db.rentedGroups || {};
         const rent = db.rentedGroups[from];
-        if (!from.endsWith('@g.us')) {
-          await safeSendMessage(sock, from, { text: `💼 *MENU DE ALUGUEL — LUNAR SYSTEM* ⚜️\nUse \`/aluguel\` para ver os planos disponíveis.` }, { quoted: msg });
-          continue;
-        }
         if (!rent) {
           await safeSendMessage(sock, from, { text: `⚠️ Este grupo não possui aluguel ativo. Use \`/aluguel\` para ver a tabela.` }, { quoted: msg });
           continue;
@@ -516,7 +569,7 @@ async function startBot() {
         for (const [key, p] of Object.entries(plans)) {
           rep += `🆔 \`${key}\` | 🏷️ ${p.name} \vert{} 💵 R$ ${p.price.toFixed(2)} \vert{} 📊 Taxa: *${p.feePercent}%*\n`;
         }
-        rep += `\n💡 Para assinar, use \`/alugar <id_do_plano>\` (ex: \`/alugar 1_dia\`)`;
+        rep += `\n💡 Para assinar, use \`/alugar <id_do_plano>\``;
         await safeSendMessage(sock, from, { text: rep }, { quoted: msg });
         continue;
       }
@@ -539,7 +592,106 @@ async function startBot() {
         continue;
       }
 
-      // --- OUTROS MENUS E COMANDOS ---
+      // --- BANCO & ECONOMIA ---
+      if (command === '/menubanco' || command === '/banco') {
+        const mBanco = `🏦 *MENU DE BANCO — LUNAR SYSTEM* ⚜️\n\n` +
+          `› \`/depositar <valor/tudo>\` - Deposita coins\n` +
+          `› \`/sacar <valor/tudo>\` - Saca coins\n` +
+          `› \`/investir <valor>\` - Investe com juros\n` +
+          `› \`/emprestimo <valor>\` - Empréstimo`;
+        await safeSendMessage(sock, from, { text: mBanco }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/depositar' || command === '/dep') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
+        const argVal = args[0] ? args[0].toLowerCase() : '';
+        const amount = argVal === 'tudo' || argVal === 'all' ? db.wallets[senderJid].coins : parseFloat(argVal);
+        if (isNaN(amount) || amount <= 0) {
+          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/depositar <valor>\` ou \`/depositar tudo\`` }, { quoted: msg });
+          continue;
+        }
+        if (db.wallets[senderJid].coins < amount) {
+          await safeSendMessage(sock, from, { text: `⚠️ Saldo insuficiente na carteira!` }, { quoted: msg });
+          continue;
+        }
+        db.wallets[senderJid].coins -= amount;
+        db.wallets[senderJid].bank += amount;
+        saveDatabase(db);
+        await safeSendMessage(sock, from, { text: `🏦 Depósito realizado com sucesso!` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/sacar' || command === '/sac') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
+        const argVal = args[0] ? args[0].toLowerCase() : '';
+        const amount = argVal === 'tudo' || argVal === 'all' ? db.wallets[senderJid].bank : parseFloat(argVal);
+        if (isNaN(amount) || amount <= 0) {
+          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/sacar <valor>\` ou \`/sacar tudo\`` }, { quoted: msg });
+          continue;
+        }
+        if (db.wallets[senderJid].bank < amount) {
+          await safeSendMessage(sock, from, { text: `⚠️ Saldo insuficiente no banco!` }, { quoted: msg });
+          continue;
+        }
+        db.wallets[senderJid].bank -= amount;
+        db.wallets[senderJid].coins += amount;
+        saveDatabase(db);
+        await safeSendMessage(sock, from, { text: `💸 Saque realizado com sucesso!` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/investir') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
+        const amount = parseFloat(args[0]);
+        if (isNaN(amount) || amount <= 50) {
+          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/investir <valor>\` (Mínimo ¢ 50)` }, { quoted: msg });
+          continue;
+        }
+        if (db.wallets[senderJid].coins < amount) {
+          await safeSendMessage(sock, from, { text: `⚠️ Saldo insuficiente!` }, { quoted: msg });
+          continue;
+        }
+        db.wallets[senderJid].coins -= amount;
+        const profit = amount * (1 + (config.BANK_INTEREST_RATE || 0.05));
+        db.wallets[senderJid].bank += profit;
+        saveDatabase(db);
+        await safeSendMessage(sock, from, { text: `📈 Investimento aplicado com rendimento para ¢ ${profit.toFixed(2)}!` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/emprestimo') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
+        const amount = parseFloat(args[0]);
+        if (isNaN(amount) || amount <= 0 || amount > 1000) {
+          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/emprestimo <valor>\` (Máximo ¢ 1000)` }, { quoted: msg });
+          continue;
+        }
+        db.wallets[senderJid].coins += amount;
+        db.wallets[senderJid].bank -= (amount * 1.2);
+        saveDatabase(db);
+        await safeSendMessage(sock, from, { text: `🏦 Empréstimo aprovado e creditado na carteira!` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/carteira' || command === '/saldo') {
+        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
+        db.userPickaxes = db.userPickaxes || {};
+        db.userWeapons = db.userWeapons || {};
+        const w = db.wallets[senderJid];
+        const pickaxe = db.userPickaxes[senderJid] || "Madeira (Default)";
+        const weapon = db.userWeapons[senderJid] || "Mão / Punhos (Default)";
+
+        const repText = `👛 *CARTEIRA DE @${userNumber}* ⚜️\n\n` +
+          `💰 Saldo: *¢ ${w.coins.toFixed(2)}*\n` +
+          `🏦 Banco: *¢ ${w.bank.toFixed(2)}*\n\n` +
+          `⛏️ Picareta: *${pickaxe}*\n` +
+          `⚔️ Arma: *${weapon}*`;
+        await safeSendMessage(sock, from, { text: repText, mentions: [senderJid] }, { quoted: msg });
+        continue;
+      }
+
+      // --- OUTROS COMANDOS E MENUS ---
       if (command === '/setowner') {
         if (db.ownerJid) {
           await safeSendMessage(sock, from, { text: `⚠️ *BLOQUEADO!*` }, { quoted: msg });
@@ -555,8 +707,8 @@ async function startBot() {
           `› \`/setowner\` - Registro supremo\n` +
           `› \`/menupagamento\` - Categoria de pagamentos e saques Pix\n` +
           `› \`/editbotname\` - Altera nome do bot\n` +
-          `› \`/editdaily\` - Altera valor do bônus diário\n` +
-          `› \`/editbankinterest\` - Altera taxa de juros do banco\n` +
+          `› \`/editdaily\` - Altera bônus diário\n` +
+          `› \`/editbankinterest\` - Altera juros do banco\n` +
           `› \`/editapipagamentos\` / \`/editsecretpagamentos\` - Gateways\n` +
           `› \`/addnewcmd\` - Criar comando custom\n` +
           `› \`/addaluguel\` / \`/rmaluguel\` / \`/listalugueis\``;
@@ -567,8 +719,8 @@ async function startBot() {
       if (command === '/menuadm') {
         const mAdm = `🛡️ *MENU DE ADMINISTRAÇÃO — LUNAR SYSTEM* ⚜️\n\n` +
           `› \`/ang <txt>\` - Comunicado global (broadcast)\n` +
-          `› \`/gptime <abre> <fecha>\` - Agendador automático de abertura/fechamento\n` +
-          `› \`/tagall\` - Marca todos os membros do grupo\n` +
+          `› \`/gptime <abre> <fecha>\` - Agendador automático\n` +
+          `› \`/tagall\` - Marca todos os membros\n` +
           `› \`/antilink1 on/off\` | \`/antilink2 on/off\` | \`/antilinkgeral on/off\`\n` +
           `› \`/promover @\` | \`/rebaixar @\` | \`/ban @\`\n` +
           `› \`/gp a\` / \`/gp f\` | \`/linkgp\`\n` +
@@ -588,7 +740,7 @@ async function startBot() {
           `› \`/menuparceria\` - Parcerias\n` +
           `› \`/menuadm\` - Moderação e ADM\n` +
           `› \`/menualuguel\` - Status de aluguel\n` +
-          `› \`/aluguel\` - Tabela de planos de aluguel\n` +
+          `› \`/aluguel\` - Tabela de planos\n` +
           `› \`/menuvip\` - Menu VIP\n` +
           `› \`/menudono\` - Painel do dono\n` +
           `› \`/sugestao <txt>\` - Sugestões\n` +
