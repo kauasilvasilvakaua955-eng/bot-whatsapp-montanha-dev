@@ -98,6 +98,8 @@ function loadDatabase() {
     if (!data.systemXpGroups) data.systemXpGroups = {};
     if (!data.systemCasamentoGroups) data.systemCasamentoGroups = {};
     if (!data.systemBancoGroups) data.systemBancoGroups = {};
+    if (!data.parceriaGroups) data.parceriaGroups = {};
+    if (!data.parceirosList) data.parceirosList = {};
     if (!data.rentalPlans) data.rentalPlans = {
       "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10, type: "temp" },
       "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30, type: "temp" },
@@ -112,7 +114,7 @@ function loadDatabase() {
     };
     return data;
   } catch {
-    return { ownerJid: null, ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, rentalPlans: {}, systemXpGroups: {}, systemCasamentoGroups: {}, systemBancoGroups: {} };
+    return { ownerJid: null, ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, rentalPlans: {}, systemXpGroups: {}, systemCasamentoGroups: {}, systemBancoGroups: {}, parceriaGroups: {}, parceirosList: {} };
   }
 }
 
@@ -121,7 +123,7 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-// Carregador Modular Recursivo Completo e Exaustivo (Varre absolutamente todas as pastas, subpastas e arquivos .js)
+// Carregador Modular Recursivo Completo e Exaustivo de todos os menus e subpastas
 const commands = new Map();
 function loadCommandsRecursive(dir) {
   if (!fs.existsSync(dir)) return;
@@ -164,7 +166,7 @@ async function startBot() {
   const config = loadConfig();
   console.log(`\n========================================`);
   console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} -${config.COMPANY_NAME}`);
-  console.log(`📂 Leitor Recursivo Exaustivo Concluído (${commands.size} comandos mapeados de todas as subpastas)`);
+  console.log(`📂 Leitor Recursivo Exaustivo Concluído (${commands.size} comandos mapeados)`);
   console.log(`========================================\n`);
 
   let defaultNum = config.OWNER_NUMBER;
@@ -277,6 +279,90 @@ async function startBot() {
       const text = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || '';
       const trimmedText = text.trim();
       const isOwner = db.ownerJid && (senderJid === db.ownerJid || senderJid.split('@')[0] === db.ownerJid.split('@')[0]);
+
+      // Verificação de Links, Modo Parceria e Antilinks
+      if (!trimmedText.startsWith('/') && text.match(/(https?:\/\/[^\s]+|www\.[^\s]+|[a-zA-Z0-9][-a-zA-Z0-90-9]+\.(com|net|org|br|gg|xyz|me|io|tk|ml|ga|cf|gq)[^\s]*)/i)) {
+        try {
+          const groupMeta = await sock.groupMetadata(from);
+          const groupName = groupMeta.subject;
+          const isAdmin = groupMeta.participants.some(p => p.id === senderJid && (p.admin === 'admin' || p.admin === 'superadmin'));
+
+          if (!isAdmin) {
+            db.parceriaGroups = db.parceriaGroups || {};
+            db.parceirosList = db.parceirosList || {};
+
+            if (db.parceriaGroups[from] === true) {
+              // Modo Parceria Ativo
+              const partnerData = db.parceirosList[from]?.[senderJid];
+              if (partnerData && partnerData.active) {
+                if (partnerData.usedToday < partnerData.limit) {
+                  partnerData.usedToday += 1;
+                  saveDatabase(db);
+                  await safeSendMessage(sock, from, { delete: msg.key });
+                  await sock.sendMessage(from, { text: `🔗 Link postado pelo parceiro @${userNumber} (${partnerData.usedToday}/${partnerData.limit} usados hoje).`, mentions: [senderJid] });
+                } else {
+                  // Limite excedido do parceiro
+                  partnerData.violations = (partnerData.violations || 0) + 1;
+                  saveDatabase(db);
+                  await safeSendMessage(sock, from, { delete: msg.key });
+                  if (partnerData.violations >= 10) {
+                    partnerData.active = false;
+                    saveDatabase(db);
+                    await sock.groupParticipantsUpdate(from, [senderJid], 'demote').catch(() => {});
+                    // Muta permanente simulado (registrado em mutedUsers)
+                    db.mutedUsers = db.mutedUsers || {};
+                    db.mutedUsers[senderJid] = { perm: true, time: 0 };
+                    saveDatabase(db);
+                    await sock.sendMessage(from, { text: `🚨 @${userNumber} insistiu em postar sem limite diário. A parceria foi revogada e o usuário foi mutado permanentemente!`, mentions: [senderJid] });
+                  } else {
+                    await sock.sendMessage(from, { text: `⚠️ @${userNumber}, seu limite diário de links excedeu/esgotou! Só amanhã para postar de novo. Caso insista (Tentativa ${partnerData.violations}/10), perderá a parceria e será mutado.`, mentions: [senderJid] });
+                  }
+                }
+              } else {
+                // Não é parceiro e modo parceria está ativo
+                await safeSendMessage(sock, from, { delete: msg.key });
+                db.partnerViolations = db.partnerViolations || {};
+                db.partnerViolations[from] = db.partnerViolations[from] || {};
+                db.partnerViolations[from][senderJid] = (db.partnerViolations[from][senderJid] || 0) + 1;
+                const vCount = db.partnerViolations[from][senderJid];
+                saveDatabase(db);
+
+                if (vCount >= 10) {
+                  db.mutedUsers = db.mutedUsers || {};
+                  db.mutedUsers[senderJid] = { perm: true, time: 0 };
+                  saveDatabase(db);
+                  await sock.sendMessage(from, { text: `🚨 @${userNumber} atingiu 10 insistências enviando links sem parceria e foi mutado permanentemente! Apenas ADM com \`/unmute\` pode remover.`, mentions: [senderJid] });
+                } else {
+                  await sock.sendMessage(from, { text: `⚠️ É proibido links no grupo *${groupName}* sem ter parceria! (Insistência ${vCount}/10). Caso insista, será mutado pelo sistema.`, mentions: [senderJid] });
+                }
+              }
+            } else {
+              // Modo Parceria desligado, verifica antilinks tradicionais
+              if (db.antiLink2Groups && db.antiLink2Groups[from]) {
+                await safeSendMessage(sock, from, { delete: msg.key });
+                await sock.groupParticipantsUpdate(from, [senderJid], 'remove').catch(() => {});
+                await sock.sendMessage(from, { text: `🛡️ @${userNumber} enviou link e foi banido automaticamente (AntiLink 2).`, mentions: [senderJid] });
+              } else if (db.antiLink1Groups && db.antiLink1Groups[from]) {
+                await safeSendMessage(sock, from, { delete: msg.key });
+                await sock.sendMessage(from, { text: `⚠️ @${userNumber}, o envio de links é proibido neste grupo!`, mentions: [senderJid] });
+              } else if (db.antiLinkGeralGroups && db.antiLinkGeralGroups[from]) {
+                await safeSendMessage(sock, from, { delete: msg.key });
+                db.antiLinkGeralWarnings = db.antiLinkGeralWarnings || {};
+                db.antiLinkGeralWarnings[from] = db.antiLinkGeralWarnings[from] || {};
+                db.antiLinkGeralWarnings[from][senderJid] = (db.antiLinkGeralWarnings[from][senderJid] || 0) + 1;
+                const warns = db.antiLinkGeralWarnings[from][senderJid];
+                saveDatabase(db);
+                if (warns >= 5) {
+                  await sock.groupParticipantsUpdate(from, [senderJid], 'remove').catch(() => {});
+                  await sock.sendMessage(from, { text: `🚨 @${userNumber} atingiu 5 avisos de link e foi banido!`, mentions: [senderJid] });
+                } else {
+                  await sock.sendMessage(from, { text: `⚠️ @${userNumber} AVISO (${warns}/5): Links são proibidos!`, mentions: [senderJid] });
+                }
+              }
+            }
+          }
+        } catch {}
+      }
 
       if (ownerInteractiveSessions.has(senderJid)) {
         if (trimmedText.toLowerCase().startsWith('/setowner')) continue;
