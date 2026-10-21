@@ -121,7 +121,7 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-// Carregador Modular Recursivo Rigoroso para todas as subpastas em commands/
+// Carregador Modular Recursivo Avançado e Robusto para todas as pastas de menus em commands/
 const commands = new Map();
 function loadCommandsRecursive(dir) {
   if (!fs.existsSync(dir)) return;
@@ -138,7 +138,7 @@ function loadCommandsRecursive(dir) {
           commands.set(cmdModule.name.toLowerCase(), cmdModule);
         }
       } catch (err) {
-        console.error(`Erro ao carregar comando ${fullPath}:`, err.message);
+        console.error(`Erro ao carregar o comando ${fullPath}:`, err.message);
       }
     }
   }
@@ -157,7 +157,7 @@ async function startBot() {
   const config = loadConfig();
   console.log(`\n========================================`);
   console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} -${config.COMPANY_NAME}`);
-  console.log(`📂 Sistema Modular Recursivo Rigoroso Carregado (${commands.size} comandos ativos)`);
+  console.log(`📂 Sistema Modular Recursivo 100% Ativo (${commands.size} comandos mapeados nas subpastas)`);
   console.log(`========================================\n`);
 
   let defaultNum = config.OWNER_NUMBER;
@@ -391,11 +391,11 @@ async function startBot() {
         };
         saveDatabase(db);
         const res = await purincash.gerarPix(plan.price, plan.feePercent);
-        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA GERADA — PURIN CASH*\nPlano: ${plan.name} \vert{} R$ ${res.valorTotal.toFixed(2)} (${plan.feePercent}% taxa depositada na sua Purin)\n\nCopia e Cola:\n\`${res.copiaEcola}\`` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA GERADA — PURIN CASH*\nPlano: ${plan.name} \vert{} R$ ${res.valorTotal.toFixed(2)} (${plan.feePercent}% taxa depositada na sua Purin)\n\nCopia e Cola:\n\`{res.copiaEcola}\`` }, { quoted: msg });
         continue;
       }
 
-      // Execução garantida via mapa de comandos modulares recursivos
+      // Execução garantida via mapa de comandos modulares recursivos de todas as pastas
       if (commands.has(commandKey)) {
         const cmd = commands.get(commandKey);
         try {
