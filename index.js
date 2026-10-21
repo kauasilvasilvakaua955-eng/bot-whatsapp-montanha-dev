@@ -76,6 +76,7 @@ function loadDatabase() {
       systemXpGroups: {},
       systemCasamentoGroups: {},
       systemBancoGroups: {},
+      groupBotStatus: {},
       rentalPlans: {
         "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10, type: "temp" },
         "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30, type: "temp" },
@@ -100,6 +101,7 @@ function loadDatabase() {
     if (!data.systemBancoGroups) data.systemBancoGroups = {};
     if (!data.parceriaGroups) data.parceriaGroups = {};
     if (!data.parceirosList) data.parceirosList = {};
+    if (!data.groupBotStatus) data.groupBotStatus = {};
     if (!data.rentalPlans) data.rentalPlans = {
       "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10, type: "temp" },
       "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30, type: "temp" },
@@ -114,7 +116,7 @@ function loadDatabase() {
     };
     return data;
   } catch {
-    return { ownerJid: null, ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, rentalPlans: {}, systemXpGroups: {}, systemCasamentoGroups: {}, systemBancoGroups: {}, parceriaGroups: {}, parceirosList: {} };
+    return { ownerJid: null, ownerNumber: FIXED_OWNER_NUMBER, rentedGroups: {}, rentalPlans: {}, systemXpGroups: {}, systemCasamentoGroups: {}, systemBancoGroups: {}, groupBotStatus: {} };
   }
 }
 
@@ -235,6 +237,7 @@ async function startBot() {
       const { id, participants, action } = update;
       db = loadDatabase();
       if (action === 'add') {
+        if (db.groupBotStatus && db.groupBotStatus[id] === false) return;
         if (db.autoAprovarGroups && db.autoAprovarGroups[id]) {
           try { await sock.groupRequestParticipantsUpdate(id, participants, 'approve'); } catch {}
         }
@@ -260,6 +263,16 @@ async function startBot() {
       const userNumber = senderJid.split('@')[0].split(':')[0];
       const cfg = loadConfig();
       db = loadDatabase();
+
+      // Verifica se o bot está desligado no grupo via /bot off (Default: ON)
+      if (db.groupBotStatus && db.groupBotStatus[from] === false) {
+        const textCheck = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        // Permite que apenas o dono reative com /bot on
+        const isOwner = db.ownerJid && (senderJid === db.ownerJid || senderJid.split('@')[0] === db.ownerJid.split('@')[0]);
+        if (!isOwner || !textCheck.trim().toLowerCase().startsWith('/bot on')) {
+          continue;
+        }
+      }
 
       if (db.blacklistedUsers?.includes(senderJid)) continue;
 
@@ -309,7 +322,6 @@ async function startBot() {
                     partnerData.active = false;
                     saveDatabase(db);
                     await sock.groupParticipantsUpdate(from, [senderJid], 'demote').catch(() => {});
-                    // Muta permanente simulado (registrado em mutedUsers)
                     db.mutedUsers = db.mutedUsers || {};
                     db.mutedUsers[senderJid] = { perm: true, time: 0 };
                     saveDatabase(db);
