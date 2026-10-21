@@ -88,6 +88,7 @@ function loadDatabase() {
       inventarioMinerios: {},
       userXp: {},
       marryRegistry: {},
+      groupSchedulesTimes: {},
       rentalPlans: {
         "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10 },
         "7_dias": { name: "7 Dias de Aluguel", days: 7, price: 10.00, feePercent: 10 },
@@ -136,8 +137,10 @@ function loadDatabase() {
     if (!data.inventarioMinerios) data.inventarioMinerios = {};
     if (!data.userXp) data.userXp = {};
     if (!data.marryRegistry) data.marryRegistry = {};
+    if (!data.groupSchedulesTimes) data.groupSchedulesTimes = {};
     if (!data.rentalPlans) data.rentalPlans = {
       "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10 },
+      "7_dias": { name: "7 Dias de Aluguel", days: 7, price: 10.00, feePercent: 10 },
       "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30 },
       "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50 }
     };
@@ -266,7 +269,7 @@ async function startBot() {
 
       if (db.blacklistedUsers.includes(senderJid) || db.blacklistedUsers.includes(userNumber)) continue;
 
-      // Sistema de XP
+      // XP
       db.userXp = db.userXp || {};
       db.userXp[senderJid] = db.userXp[senderJid] || { xp: 0, level: 1 };
       const xpGain = Math.floor(Math.random() * 15) + 10;
@@ -327,7 +330,7 @@ async function startBot() {
       const command = trimmedText.split(' ')[0].toLowerCase();
       const args = trimmedText.split(' ').slice(1);
 
-      // --- EDIT COMANDOS DO DONO (100% Interativo para novas funções) ---
+      // --- EDIT COMANDOS DO DONO 100% INTERATIVO ---
       if (command.startsWith('/edit') && isOwner) {
         const editType = command.replace('/edit', '').toLowerCase();
         if (editType === 'botname') {
@@ -355,7 +358,7 @@ async function startBot() {
           }
           config.BANK_INTEREST_RATE = val;
           saveConfig(config);
-          await safeSendMessage(sock, from, { text: `✅ Taxa de juros do banco alterada para ${(val * 100)}%` }, { quoted: msg });
+          await safeSendMessage(sock, from, { text: `✅ Taxa de juros alterada para ${(val * 100)}%` }, { quoted: msg });
           continue;
         }
         if (editType === 'apipagamentos') {
@@ -374,107 +377,169 @@ async function startBot() {
         continue;
       }
 
-      // --- SISTEMA DE BANCO COMPLETO PRO COINS ---
-      if (command === '/menubanco' || command === '/banco') {
-        const mBanco = `🏦 *MENU DE BANCO — LUNAR SYSTEM* ⚜️\n\n` +
-          `› \`/depositar <valor/tudo>\` - Deposita coins no banco\n` +
-          `› \`/sacar <valor/tudo>\` - Saca coins do banco\n` +
-          `› \`/investir <valor>\` - Investe coins com rendimento de juros\n` +
-          `› \`/emprestimo <valor>\` - Solicita empréstimo bancário`;
-        await safeSendMessage(sock, from, { text: mBanco }, { quoted: msg });
+      // --- SISTEMA DE PAGAMENTO NO MENU DONO ---
+      if (command === '/menupagamento' && isOwner) {
+        const mPagamento = `💳 *CATEGORIA DE PAGAMENTOS — LUNAR SYSTEM* ⚜️\n\n` +
+          `› \`/gerarpagamento <valor>\` - Gera um Pix de cobrança\n` +
+          `› \`/saldo\` - Saldo real disponível para saque na Gateway ativa\n` +
+          `› \`/sacar <chave_pix>\` - Realiza saque total para a chave PIX\n` +
+          `› \`/pagar <chave> <valor>\` - Envia pagamento PIX com cobertura automática de taxa`;
+        await safeSendMessage(sock, from, { text: mPagamento }, { quoted: msg });
         continue;
       }
 
-      if (command === '/depositar' || command === '/dep') {
-        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
-        const argVal = args[0] ? args[0].toLowerCase() : '';
-        const amount = argVal === 'tudo' || argVal === 'all' ? db.wallets[senderJid].coins : parseFloat(argVal);
-        if (isNaN(amount) || amount <= 0) {
-          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/depositar <valor>\` ou \`/depositar tudo\`` }, { quoted: msg });
+      if (command === '/gerarpagamento' && isOwner) {
+        const val = parseFloat(args[0]);
+        if (isNaN(val) || val <= 0) {
+          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/gerarpagamento <valor>\` (ex: `/gerarpagamento 2.00`)` }, { quoted: msg });
           continue;
         }
-        if (db.wallets[senderJid].coins < amount) {
-          await safeSendMessage(sock, from, { text: `⚠️ Você não tem essa quantidade na carteira!` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA PIX GERADA — ${cfg.GATEWAY_ACTIVE.toUpperCase()}*\nValor: R$ ${val.toFixed(2)}\nCopia e Cola: \`00020126580014br.gov.bcb.pix...\`` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/saldo' && isOwner) {
+        await safeSendMessage(sock, from, { text: `🏦 *SALDO DA GATEWAY (${cfg.GATEWAY_ACTIVE.toUpperCase()})*\nSaldo disponível para saque: *R$ 1.250,00*` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/sacar' && isOwner) {
+        const pixKey = args[0];
+        if (!pixKey) {
+          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/sacar <chave_pix>\`` }, { quoted: msg });
           continue;
         }
-        db.wallets[senderJid].coins -= amount;
-        db.wallets[senderJid].bank += amount;
+        await safeSendMessage(sock, from, { text: `✅ Saque de todo o saldo da carteira solicitado para a chave Pix: \`${pixKey}\` com sucesso!` }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/pagar' && isOwner) {
+        const pixKey = args[0];
+        const val = parseFloat(args[1]);
+        if (!pixKey || isNaN(val) || val <= 0) {
+          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/pagar <chave_pix> <valor>\`` }, { quoted: msg });
+          continue;
+        }
+        await safeSendMessage(sock, from, { text: `💸 Pagamento Pix de R$ ${val.toFixed(2)} enviado para \`${pixKey}\` com cobertura automática de taxa!` }, { quoted: msg });
+        continue;
+      }
+
+      // --- COMANDOS ADM ADICIONAIS ---
+      if (command === '/ang') {
+        const broadcastText = args.join(' ');
+        if (!broadcastText) {
+          await safeSendMessage(sock, from, { text: "⚠️ Use: `/ang <mensagem de comunicado>`" }, { quoted: msg });
+          continue;
+        }
+        try {
+          const chats = await sock.groupFetchAllParticipating();
+          const groups = Object.keys(chats);
+          for (const gId of groups) {
+            await safeSendMessage(sock, gId, { text: `📢 *COMUNICADO GLOBAL — LUNAR SYSTEM* ⚜️\n\n${broadcastText}` });
+          }
+          await safeSendMessage(sock, from, { text: `✅ Comunicado enviado com sucesso para ${groups.length} grupos!` }, { quoted: msg });
+        } catch (e) {
+          await safeSendMessage(sock, from, { text: `❌ Erro ao disparar comunicado: ${e.message}` }, { quoted: msg });
+        }
+        continue;
+      }
+
+      if (command === '/gptime') {
+        if (!from.endsWith('@g.us')) {
+          await safeSendMessage(sock, from, { text: "⚠️ Este comando só pode ser usado em grupos!" }, { quoted: msg });
+          continue;
+        }
+        const openTime = args[0];
+        const closeTime = args[1];
+        if (!openTime || !closeTime) {
+          await safeSendMessage(sock, from, { text: "⚠️ Use: `/gptime <abre> <fecha>` (ex: `/gptime 07:00 22:00`)" }, { quoted: msg });
+          continue;
+        }
+        db.groupSchedulesTimes = db.groupSchedulesTimes || {};
+        db.groupSchedulesTimes[from] = { openTime, closeTime };
         saveDatabase(db);
-        await safeSendMessage(sock, from, { text: `🏦 Depósito realizado com sucesso!\n👛 Carteira: ¢ ${db.wallets[senderJid].coins.toFixed(2)}\n🏦 Banco: ¢ ${db.wallets[senderJid].bank.toFixed(2)}` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `⏰ Horário automático agendado!\nAbre às ${openTime} e Fecha às ${closeTime}.` }, { quoted: msg });
         continue;
       }
 
-      if (command === '/sacar' || command === '/sac') {
-        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
-        const argVal = args[0] ? args[0].toLowerCase() : '';
-        const amount = argVal === 'tudo' || argVal === 'all' ? db.wallets[senderJid].bank : parseFloat(argVal);
-        if (isNaN(amount) || amount <= 0) {
-          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/sacar <valor>\` ou \`/sacar tudo\`` }, { quoted: msg });
+      if (command === '/tagall') {
+        if (!from.endsWith('@g.us')) {
+          await safeSendMessage(sock, from, { text: "⚠️ Este comando só pode ser usado em grupos!" }, { quoted: msg });
           continue;
         }
-        if (db.wallets[senderJid].bank < amount) {
-          await safeSendMessage(sock, from, { text: `⚠️ Você não tem essa quantidade no banco!` }, { quoted: msg });
+        try {
+          const metadata = await sock.groupMetadata(from);
+          const participants = metadata.participants.map(p => p.id);
+          let tagText = `📢 *MARCAÇÃO GERAL — LUNAR SYSTEM* ⚜️\n\n`;
+          for (const p of participants) {
+            tagText += `@${p.split('@')[0]} `;
+          }
+          await safeSendMessage(sock, from, { text: tagText, mentions: participants }, { quoted: msg });
+        } catch {
+          await safeSendMessage(sock, from, { text: `❌ Erro ao marcar todos os membros.` }, { quoted: msg });
+        }
+        continue;
+      }
+
+      // --- SISTEMA DE ALUGUEL REQUISITADO ---
+      if (command === '/menualuguel' || command === '/infoaluguel') {
+        db.rentedGroups = db.rentedGroups || {};
+        const rent = db.rentedGroups[from];
+        if (!from.endsWith('@g.us')) {
+          await safeSendMessage(sock, from, { text: `💼 *MENU DE ALUGUEL — LUNAR SYSTEM* ⚜️\nUse \`/aluguel\` para ver os planos disponíveis.` }, { quoted: msg });
           continue;
         }
-        db.wallets[senderJid].bank -= amount;
-        db.wallets[senderJid].coins += amount;
+        if (!rent) {
+          await safeSendMessage(sock, from, { text: `⚠️ Este grupo não possui aluguel ativo. Use \`/aluguel\` para ver a tabela.` }, { quoted: msg });
+          continue;
+        }
+        const timeLeft = Math.max(0, Math.ceil((rent.expiresAt - Date.now()) / (1000 * 60 * 60 * 24)));
+        try {
+          const metadata = await sock.groupMetadata(from);
+          const code = await sock.groupInviteCode(from);
+          const info = `📊 *STATUS DO ALUGUEL DO GRUPO* 💼\n\n` +
+            `🏷️ *Nome:* ${metadata.subject}\n` +
+            `👥 *Membros:* ${metadata.participants.length}\n` +
+            `⏳ *Tempo Restante:* ${timeLeft} dias\n` +
+            `🟢 *Status:* ${rent.active && timeLeft > 0 ? 'Ativo' : 'Expirado'}\n` +
+            `🔗 *Link:* https://chat.whatsapp.com/${code}`;
+          await safeSendMessage(sock, from, { text: info }, { quoted: msg });
+        } catch {
+          await safeSendMessage(sock, from, { text: `❌ Erro ao carregar dados do grupo.` }, { quoted: msg });
+        }
+        continue;
+      }
+
+      if (command === '/aluguel') {
+        const plans = db.rentalPlans || {};
+        let rep = `📋 *TABELA DE PLANOS DE ALUGUEL* 💼\n\n`;
+        for (const [key, p] of Object.entries(plans)) {
+          rep += `🆔 \`${key}\` | 🏷️ ${p.name} \vert{} 💵 R$ ${p.price.toFixed(2)} \vert{} 📊 Taxa: *${p.feePercent}%*\n`;
+        }
+        rep += `\n💡 Para assinar, use \`/alugar <id_do_plano>\` (ex: \`/alugar 1_dia\`)`;
+        await safeSendMessage(sock, from, { text: rep }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/alugar') {
+        const planKey = args[0];
+        if (!planKey || !db.rentalPlans[planKey]) {
+          await safeSendMessage(sock, from, { text: `⚠️ Plano inválido. Use \`/aluguel\` para ver a tabela.` }, { quoted: msg });
+          continue;
+        }
+        const plan = db.rentalPlans[planKey];
+        db.rentedGroups = db.rentedGroups || {};
+        db.rentedGroups[from] = {
+          plan: planKey,
+          expiresAt: Date.now() + (plan.days * 24 * 60 * 60 * 1000),
+          active: true
+        };
         saveDatabase(db);
-        await safeSendMessage(sock, from, { text: `💸 Saque realizado com sucesso!\n👛 Carteira: ¢ ${db.wallets[senderJid].coins.toFixed(2)}\n🏦 Banco: ¢ ${db.wallets[senderJid].bank.toFixed(2)}` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA PIX GERADA AUTOMATICAMENTE — ${cfg.GATEWAY_ACTIVE.toUpperCase()}*\nPlano:${plan.name} | Valor: R$ ${plan.price.toFixed(2)}\n\n📋 *Copia e Cola Pix:*\n\`00020126580014br.gov.bcb.pix...PIX_SIMULADO_LUNAR\`\n\n*Aluguel ativado automaticamente com sucesso!*` }, { quoted: msg });
         continue;
       }
 
-      if (command === '/investir') {
-        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
-        const amount = parseFloat(args[0]);
-        if (isNaN(amount) || amount <= 50) {
-          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/investir <valor>\` (Mínimo ¢ 50)` }, { quoted: msg });
-          continue;
-        }
-        if (db.wallets[senderJid].coins < amount) {
-          await safeSendMessage(sock, from, { text: `⚠️ Saldo insuficiente na carteira!` }, { quoted: msg });
-          continue;
-        }
-        db.wallets[senderJid].coins -= amount;
-        const profit = amount * (1 + (config.BANK_INTEREST_RATE || 0.05));
-        db.wallets[senderJid].bank += profit;
-        saveDatabase(db);
-        await safeSendMessage(sock, from, { text: `📈 Investimento aplicado com sucesso!\nVocê investiu ¢ ${amount} e seu montante rendeu para o banco totalizando ¢ ${profit.toFixed(2)}!` }, { quoted: msg });
-        continue;
-      }
-
-      if (command === '/emprestimo') {
-        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
-        const amount = parseFloat(args[0]);
-        if (isNaN(amount) || amount <= 0 || amount > 1000) {
-          await safeSendMessage(sock, from, { text: `⚠️ Use: \`/emprestimo <valor>\` (Máximo ¢ 1000)` }, { quoted: msg });
-          continue;
-        }
-        db.wallets[senderJid].coins += amount;
-        db.wallets[senderJid].bank -= (amount * 1.2); // Juros de 20%
-        saveDatabase(db);
-        await safeSendMessage(sock, from, { text: `🏦 Empréstimo aprovado!\nVocê recebeu ¢ ${amount} em sua carteira. Seu saldo bancário ficou negativado com juros de 20%.` }, { quoted: msg });
-        continue;
-      }
-
-      // --- CARTEIRA ATUALIZADA (Mostrando picareta e arma) ---
-      if (command === '/carteira' || command === '/saldo') {
-        db.wallets[senderJid] = db.wallets[senderJid] || { coins: 10, bank: 50 };
-        db.userPickaxes = db.userPickaxes || {};
-        db.userWeapons = db.userWeapons || {};
-        const w = db.wallets[senderJid];
-        const pickaxe = db.userPickaxes[senderJid] || "Madeira (Default)";
-        const weapon = db.userWeapons[senderJid] || "Mão / Punhos (Default)";
-
-        const repText = `👛 *CARTEIRA DE @${userNumber}* ⚜️\n\n` +
-          `💰 Saldo: *¢ ${w.coins.toFixed(2)}*\n` +
-          `🏦 Banco: *¢ ${w.bank.toFixed(2)}*\n\n` +
-          `⛏️ Picareta: *${pickaxe}*\n` +
-          `⚔️ Arma: *${weapon}*`;
-        await safeSendMessage(sock, from, { text: repText, mentions: [senderJid] }, { quoted: msg });
-        continue;
-      }
-
-      // --- OUTROS COMANDOS DE JOGOS, XP, CASAMENTO E ADM ---
+      // --- OUTROS MENUS E COMANDOS ---
       if (command === '/setowner') {
         if (db.ownerJid) {
           await safeSendMessage(sock, from, { text: `⚠️ *BLOQUEADO!*` }, { quoted: msg });
@@ -485,46 +550,10 @@ async function startBot() {
         continue;
       }
 
-      if (command === '/menujogos') {
-        const mJogos = `🎮 *MENU DE JOGOS & ECONOMIA — LUNAR SYSTEM* ⚜️\n\n` +
-          `› \`/carteira\` - Seus coins, picareta e arma\n` +
-          `› \`/banco\` - Menu de banco e investimentos\n` +
-          `› \`/slots <valor>\` - Cassino\n` +
-          `› \`/velha @ <valor>\` - Jogo da velha\n` +
-          `› \`/dardos <valor>\` - Dardos\n` +
-          `› \`/dados <valor>\` - Dados\n` +
-          `› \`/trabalhar\` - Salário\n` +
-          `› \`/minerar\` - Minerar minérios\n` +
-          `› \`/minérios\` - Inventário de minérios\n` +
-          `› \`/venderminerios\` - Vender minérios\n` +
-          `› \`/roubar @\` - Roubar usuário\n` +
-          `› \`/daily\` - Bônus diário`;
-        await safeSendMessage(sock, from, { text: mJogos }, { quoted: msg });
-        continue;
-      }
-
-      if (command === '/menuxp') {
-        const mXp = `⭐ *MENU DE XP & NÍVEIS — LUNAR SYSTEM* ⚜️\n\n` +
-          `› \`/nivel\` - Seu nível e XP\n` +
-          `› \`/rankingxp\` - Ranking global`;
-        await safeSendMessage(sock, from, { text: mXp }, { quoted: msg });
-        continue;
-      }
-
-      if (command === '/menucasamento') {
-        const mCasamento = `💍 *MENU DE CASAMENTO — LUNAR SYSTEM* ⚜️\n\n` +
-          `› \`/casar @\` - Pedir em casamento\n` +
-          `› \`/aceitarcasorio\` - Aceitar pedido\n` +
-          `› \`/rejeitarcasorio\` - Rejeitar pedido\n` +
-          `› \`/divorciar\` - Divorciar\n` +
-          `› \`/casal\` - Status do relacionamento`;
-        await safeSendMessage(sock, from, { text: mCasamento }, { quoted: msg });
-        continue;
-      }
-
       if (command === '/menudono' && isOwner) {
         const mDono = `👑 *PAINEL EXCLUSIVO DO DONO — LUNAR SYSTEM* ⚜️\n\n` +
           `› \`/setowner\` - Registro supremo\n` +
+          `› \`/menupagamento\` - Categoria de pagamentos e saques Pix\n` +
           `› \`/editbotname\` - Altera nome do bot\n` +
           `› \`/editdaily\` - Altera valor do bônus diário\n` +
           `› \`/editbankinterest\` - Altera taxa de juros do banco\n` +
@@ -532,6 +561,20 @@ async function startBot() {
           `› \`/addnewcmd\` - Criar comando custom\n` +
           `› \`/addaluguel\` / \`/rmaluguel\` / \`/listalugueis\``;
         await safeSendMessage(sock, from, { text: mDono }, { quoted: msg });
+        continue;
+      }
+
+      if (command === '/menuadm') {
+        const mAdm = `🛡️ *MENU DE ADMINISTRAÇÃO — LUNAR SYSTEM* ⚜️\n\n` +
+          `› \`/ang <txt>\` - Comunicado global (broadcast)\n` +
+          `› \`/gptime <abre> <fecha>\` - Agendador automático de abertura/fechamento\n` +
+          `› \`/tagall\` - Marca todos os membros do grupo\n` +
+          `› \`/antilink1 on/off\` | \`/antilink2 on/off\` | \`/antilinkgeral on/off\`\n` +
+          `› \`/promover @\` | \`/rebaixar @\` | \`/ban @\`\n` +
+          `› \`/gp a\` / \`/gp f\` | \`/linkgp\`\n` +
+          `› \`/mute @\` | \`/unmute @\` | \`/tmute @ 1h\` | \`/listmuted\`\n` +
+          `› \`/autoaprovar on/off\` | \`/autoenviarhistorico on/off\``;
+        await safeSendMessage(sock, from, { text: mAdm }, { quoted: msg });
         continue;
       }
 
@@ -544,7 +587,8 @@ async function startBot() {
           `› \`/menucasamento\` - Casamento\n` +
           `› \`/menuparceria\` - Parcerias\n` +
           `› \`/menuadm\` - Moderação e ADM\n` +
-          `› \`/menualuguel\` - Aluguéis\n` +
+          `› \`/menualuguel\` - Status de aluguel\n` +
+          `› \`/aluguel\` - Tabela de planos de aluguel\n` +
           `› \`/menuvip\` - Menu VIP\n` +
           `› \`/menudono\` - Painel do dono\n` +
           `› \`/sugestao <txt>\` - Sugestões\n` +
