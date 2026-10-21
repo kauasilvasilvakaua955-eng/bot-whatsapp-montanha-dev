@@ -90,10 +90,16 @@ function loadDatabase() {
       marryRegistry: {},
       groupSchedulesTimes: {},
       rentalPlans: {
-        "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10 },
-        "7_dias": { name: "7 Dias de Aluguel", days: 7, price: 10.00, feePercent: 10 },
-        "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30 },
-        "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50 }
+        "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10, type: "temp" },
+        "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30, type: "temp" },
+        "60_dias": { name: "60 Dias de Aluguel", days: 60, price: 55.00, feePercent: 30, type: "temp" },
+        "90_dias": { name: "90 Dias de Aluguel", days: 90, price: 80.00, feePercent: 30, type: "temp" },
+        "3_meses": { name: "3 Meses de Aluguel", days: 90, price: 80.00, feePercent: 30, type: "temp" },
+        "6_meses": { name: "6 Meses de Aluguel", days: 180, price: 150.00, feePercent: 40, type: "temp" },
+        "1_ano": { name: "1 Ano de Aluguel", days: 365, price: 280.00, feePercent: 50, type: "temp" },
+        "2_anos": { name: "2 Anos de Aluguel", days: 730, price: 500.00, feePercent: 50, type: "temp" },
+        "3_anos": { name: "3 Anos de Aluguel", days: 1095, price: 700.00, feePercent: 50, type: "temp" },
+        "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50, type: "permanente" }
       }
     };
     fs.writeFileSync(DB_PATH, JSON.stringify(defaultData, null, 2));
@@ -139,9 +145,16 @@ function loadDatabase() {
     if (!data.marryRegistry) data.marryRegistry = {};
     if (!data.groupSchedulesTimes) data.groupSchedulesTimes = {};
     if (!data.rentalPlans) data.rentalPlans = {
-      "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10 },
-      "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30 },
-      "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50 }
+      "1_dia": { name: "1 Dia de Aluguel", days: 1, price: 2.00, feePercent: 10, type: "temp" },
+      "30_dias": { name: "30 Dias de Aluguel", days: 30, price: 30.00, feePercent: 30, type: "temp" },
+      "60_dias": { name: "60 Dias de Aluguel", days: 60, price: 55.00, feePercent: 30, type: "temp" },
+      "90_dias": { name: "90 Dias de Aluguel", days: 90, price: 80.00, feePercent: 30, type: "temp" },
+      "3_meses": { name: "3 Meses de Aluguel", days: 90, price: 80.00, feePercent: 30, type: "temp" },
+      "6_meses": { name: "6 Meses de Aluguel", days: 180, price: 150.00, feePercent: 40, type: "temp" },
+      "1_ano": { name: "1 Ano de Aluguel", days: 365, price: 280.00, feePercent: 50, type: "temp" },
+      "2_anos": { name: "2 Anos de Aluguel", days: 730, price: 500.00, feePercent: 50, type: "temp" },
+      "3_anos": { name: "3 Anos de Aluguel", days: 1095, price: 700.00, feePercent: 50, type: "temp" },
+      "permanente": { name: "Acesso Permanente", days: 9999, price: 150.00, feePercent: 50, type: "permanente" }
     };
     return data;
   } catch {
@@ -262,7 +275,7 @@ async function startBot() {
 
       const from = msg.key.remoteJid;
 
-      // 🛑 IGNORA 100% QUALQUER MENSAGEM NO PRIVADO (PV) - FUNCIONA APENAS EM GRUPOS (@g.us)
+      // 🛑 FUNCIONA 100% APENAS EM GRUPOS (@g.us)
       if (!from.endsWith('@g.us')) continue;
 
       const senderJid = msg.key.participant || msg.key.remoteJid;
@@ -311,6 +324,7 @@ async function startBot() {
       if (ownerInteractiveSessions.has(senderJid)) {
         if (trimmedText.toLowerCase().startsWith('/setowner')) continue;
         const session = ownerInteractiveSessions.get(senderJid);
+
         if (session.step === 'SETOWNER_KEY') {
           ownerInteractiveSessions.delete(senderJid);
           if (db.ownerJid) {
@@ -324,6 +338,57 @@ async function startBot() {
           } else {
             await safeSendMessage(sock, from, { text: `🚫 *CHAVE INCORRETA!*` }, { quoted: msg });
           }
+          continue;
+        }
+
+        if (session.step === 'CREATE_PLAN_ID') {
+          session.planId = trimmedText.toLowerCase().replace(/\s+/g, '_');
+          session.step = 'CREATE_PLAN_NAME';
+          ownerInteractiveSessions.set(senderJid, session);
+          await safeSendMessage(sock, from, { text: `📝 Digite o **Nome Exibido** do plano:` }, { quoted: msg });
+          continue;
+        }
+
+        if (session.step === 'CREATE_PLAN_NAME') {
+          session.planName = trimmedText;
+          session.step = 'CREATE_PLAN_DAYS';
+          ownerInteractiveSessions.set(senderJid, session);
+          await safeSendMessage(sock, from, { text: `📅 Quantos **Dias** durará o plano? (\`9999\` para Permanente):` }, { quoted: msg });
+          continue;
+        }
+
+        if (session.step === 'CREATE_PLAN_DAYS') {
+          const days = parseInt(trimmedText);
+          if (isNaN(days) || days <= 0) continue;
+          session.planDays = days;
+          session.step = 'CREATE_PLAN_PRICE';
+          ownerInteractiveSessions.set(senderJid, session);
+          const isPerm = days >= 3650;
+          await safeSendMessage(sock, from, { text: isPerm ? "Mínimo obrigatório de R$ 150,00 para permanentes!" : "Digite o valor em Reais:" }, { quoted: msg });
+          continue;
+        }
+
+        if (session.step === 'CREATE_PLAN_PRICE') {
+          const price = parseFloat(trimmedText.replace(',', '.'));
+          const isPerm = session.planDays >= 3650;
+          if (isNaN(price) || price <= 0 || (isPerm && price < 150.00)) {
+            await safeSendMessage(sock, from, { text: `⚠️ Valor inválido ou abaixo do mínimo de R$ 150,00.` }, { quoted: msg });
+            continue;
+          }
+
+          let feePercent = session.planDays >= 365 ? 50 : (session.planDays >= 90 ? 40 : 30);
+          if (isPerm) feePercent = 50;
+
+          db.rentalPlans[session.planId] = {
+            name: session.planName,
+            days: session.planDays,
+            price: price,
+            feePercent: feePercent,
+            type: isPerm ? "permanente" : "temp"
+          };
+          saveDatabase(db);
+          ownerInteractiveSessions.delete(senderJid);
+          await safeSendMessage(sock, from, { text: `✅ *PLANO CRIADO COM SUCESSO!* (Taxa de serviço automática: ${feePercent}%)` }, { quoted: msg });
           continue;
         }
       }
@@ -442,13 +507,14 @@ async function startBot() {
         continue;
       }
 
-      // --- SISTEMA DE PAGAMENTO NO MENU DONO ---
+      // --- SISTEMA DE PAGAMENTO E TAXA DE SERVIÇO NO MENU DONO ---
       if (command === '/menupagamento' && isOwner) {
-        const mPagamento = `💳 *CATEGORIA DE PAGAMENTOS — LUNAR SYSTEM* ⚜️\n\n` +
+        const mPagamento = `💳 *CATEGORIA DE PAGAMENTOS & TAXAS — LUNAR SYSTEM* ⚜️\n\n` +
           `› \`/gerarpagamento <valor>\` - Gera um Pix de cobrança\n` +
           `› \`/saldo\` - Saldo real disponível para saque na Gateway ativa\n` +
           `› \`/sacar <chave_pix>\` - Realiza saque total para a chave PIX\n` +
-          `› \`/pagar <chave> <valor>\` - Envia pagamento PIX com cobertura automática de taxa`;
+          `› \`/pagar <chave> <valor>\` - Envia pagamento PIX com cobertura automática de taxa\n` +
+          `› \`/criaraluguel\` - Cria novos planos de aluguel interativamente (30, 60, 90 dias, 3/6 meses, 1/2/3 anos, permanente) com retenção automática de taxa de serviço (%)`;
         await safeSendMessage(sock, from, { text: mPagamento }, { quoted: msg });
         continue;
       }
@@ -486,6 +552,13 @@ async function startBot() {
           continue;
         }
         await safeSendMessage(sock, from, { text: `💸 Pagamento Pix de R$ ${val.toFixed(2)} enviado para \`${pixKey}\` com cobertura automática de taxa!` }, { quoted: msg });
+        continue;
+      }
+
+      // --- CRIAR ALUGUEL INTERATIVO COM TAXAS (30, 60, 90 dias, meses, anos, permanente) ---
+      if (command === '/criaraluguel' && isOwner) {
+        ownerInteractiveSessions.set(senderJid, { step: 'CREATE_PLAN_ID' });
+        await safeSendMessage(sock, from, { text: `🛠️ *CRIADOR DE PLANO DE ALUGUEL* 💼\n\nDigite o ID único do plano (ex: \`180_dias\` ou \`1_ano\`):` }, { quoted: msg });
         continue;
       }
 
@@ -538,12 +611,12 @@ async function startBot() {
         continue;
       }
 
-      // --- SISTEMA DE ALUGUEL ---
+      // --- SISTEMA DE ALUGUEL E PLANOS ---
       if (command === '/menualuguel' || command === '/infoaluguel') {
         db.rentedGroups = db.rentedGroups || {};
         const rent = db.rentedGroups[from];
         if (!rent) {
-          await safeSendMessage(sock, from, { text: `⚠️ Este grupo não possui aluguel ativo. Use \`/aluguel\` para ver a tabela.` }, { quoted: msg });
+          await safeSendMessage(sock, from, { text: `⚠️ Este grupo não possui aluguel ativo. Use \`/aluguel\` para ver a tabela de planos.` }, { quoted: msg });
           continue;
         }
         const timeLeft = Math.max(0, Math.ceil((rent.expiresAt - Date.now()) / (1000 * 60 * 60 * 24)));
@@ -565,11 +638,11 @@ async function startBot() {
 
       if (command === '/aluguel') {
         const plans = db.rentalPlans || {};
-        let rep = `📋 *TABELA DE PLANOS DE ALUGUEL* 💼\n\n`;
+        let rep = `📋 *TABELA OFICIAL DE PLANOS DE ALUGUEL* 💼\n\n`;
         for (const [key, p] of Object.entries(plans)) {
-          rep += `🆔 \`${key}\` | 🏷️ ${p.name} \vert{} 💵 R$ ${p.price.toFixed(2)} \vert{} 📊 Taxa: *${p.feePercent}%*\n`;
+          rep += `🆔 \`${key}\` | 🏷️ ${p.name} | 💵 R$ ${p.price.toFixed(2)} | 📊 Taxa de Serviço: *${p.feePercent}%*\n`;
         }
-        rep += `\n💡 Para assinar, use \`/alugar <id_do_plano>\``;
+        rep += `\n💡 Para assinar, use \`/alugar <id_do_plano>\` (ex: \`/alugar 30_dias\`, \`/alugar 3_meses\`, \`/alugar 1_ano\`, \`/alugar permanente\`)`;
         await safeSendMessage(sock, from, { text: rep }, { quoted: msg });
         continue;
       }
@@ -577,7 +650,7 @@ async function startBot() {
       if (command === '/alugar') {
         const planKey = args[0];
         if (!planKey || !db.rentalPlans[planKey]) {
-          await safeSendMessage(sock, from, { text: `⚠️ Plano inválido. Use \`/aluguel\` para ver a tabela.` }, { quoted: msg });
+          await safeSendMessage(sock, from, { text: `⚠️ Plano inválido. Use \`/aluguel\` para ver a tabela completa.` }, { quoted: msg });
           continue;
         }
         const plan = db.rentalPlans[planKey];
@@ -588,7 +661,7 @@ async function startBot() {
           active: true
         };
         saveDatabase(db);
-        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA PIX GERADA AUTOMATICAMENTE — ${cfg.GATEWAY_ACTIVE.toUpperCase()}*\nPlano:${plan.name} | Valor: R$ ${plan.price.toFixed(2)}\n\n📋 *Copia e Cola Pix:*\n\`00020126580014br.gov.bcb.pix...PIX_SIMULADO_LUNAR\`\n\n*Aluguel ativado automaticamente com sucesso!*` }, { quoted: msg });
+        await safeSendMessage(sock, from, { text: `💳 *COBRANÇA PIX GERADA AUTOMATICAMENTE — ${cfg.GATEWAY_ACTIVE.toUpperCase()}*\nPlano:${plan.name} | Valor: R$ ${plan.price.toFixed(2)} (Taxa de serviço inclusa: ${plan.feePercent}%)\n\n📋 *Copia e Cola Pix:*\n\`00020126580014br.gov.bcb.pix...PIX_SIMULADO_LUNAR\`\n\n*Aluguel ativado automaticamente com sucesso!*` }, { quoted: msg });
         continue;
       }
 
@@ -705,7 +778,8 @@ async function startBot() {
       if (command === '/menudono' && isOwner) {
         const mDono = `👑 *PAINEL EXCLUSIVO DO DONO — LUNAR SYSTEM* ⚜️\n\n` +
           `› \`/setowner\` - Registro supremo\n` +
-          `› \`/menupagamento\` - Categoria de pagamentos e saques Pix\n` +
+          `› \`/menupagamento\` - Categoria de pagamentos, saques Pix e taxas (%)\n` +
+          `› \`/criaraluguel\` - Criar planos (30, 60, 90d, 3/6m, 1/2/3a, permanente)\n` +
           `› \`/editbotname\` - Altera nome do bot\n` +
           `› \`/editdaily\` - Altera bônus diário\n` +
           `› \`/editbankinterest\` - Altera juros do banco\n` +
@@ -723,7 +797,7 @@ async function startBot() {
           `› \`/tagall\` - Marca todos os membros\n` +
           `› \`/antilink1 on/off\` | \`/antilink2 on/off\` | \`/antilinkgeral on/off\`\n` +
           `› \`/promover @\` | \`/rebaixar @\` | \`/ban @\`\n` +
-          `› \`/gp a\` / \`/gp f\` | \`/linkgp\`\n` +
+          `› \`/gp a\` | \`/gp f\` | \`/linkgp\`\n` +
           `› \`/mute @\` | \`/unmute @\` | \`/tmute @ 1h\` | \`/listmuted\`\n` +
           `› \`/autoaprovar on/off\` | \`/autoenviarhistorico on/off\``;
         await safeSendMessage(sock, from, { text: mAdm }, { quoted: msg });
@@ -740,7 +814,7 @@ async function startBot() {
           `› \`/menuparceria\` - Parcerias\n` +
           `› \`/menuadm\` - Moderação e ADM\n` +
           `› \`/menualuguel\` - Status de aluguel\n` +
-          `› \`/aluguel\` - Tabela de planos\n` +
+          `› \`/aluguel\` - Tabela de planos e taxas (%)\n` +
           `› \`/menuvip\` - Menu VIP\n` +
           `› \`/menudono\` - Painel do dono\n` +
           `› \`/sugestao <txt>\` - Sugestões\n` +
