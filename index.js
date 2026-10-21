@@ -121,24 +121,31 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-// Carregador Modular Recursivo Avançado e Robusto para todas as pastas de menus em commands/
+// Carregador Modular Recursivo Completo e Exaustivo (Varre absolutamente todas as pastas, subpastas e arquivos .js)
 const commands = new Map();
 function loadCommandsRecursive(dir) {
   if (!fs.existsSync(dir)) return;
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
+  const items = fs.readdirSync(dir, { withFileTypes: true });
+  for (const item of items) {
+    const fullPath = path.join(dir, item.name);
+    if (item.isDirectory()) {
       loadCommandsRecursive(fullPath);
-    } else if (entry.isFile() && entry.name.endsWith('.js')) {
+    } else if (item.isFile() && item.name.endsWith('.js')) {
       try {
         delete require.cache[require.resolve(fullPath)];
         const cmdModule = require(fullPath);
-        if (cmdModule && cmdModule.name) {
-          commands.set(cmdModule.name.toLowerCase(), cmdModule);
+        if (cmdModule) {
+          if (cmdModule.name) {
+            commands.set(cmdModule.name.toLowerCase(), cmdModule);
+          }
+          if (Array.isArray(cmdModule.aliases)) {
+            for (const alias of cmdModule.aliases) {
+              commands.set(alias.toLowerCase(), cmdModule);
+            }
+          }
         }
       } catch (err) {
-        console.error(`Erro ao carregar o comando ${fullPath}:`, err.message);
+        console.error(`Erro ao carregar o arquivo de comando ${fullPath}:`, err.message);
       }
     }
   }
@@ -157,7 +164,7 @@ async function startBot() {
   const config = loadConfig();
   console.log(`\n========================================`);
   console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} -${config.COMPANY_NAME}`);
-  console.log(`📂 Sistema Modular Recursivo 100% Ativo (${commands.size} comandos mapeados nas subpastas)`);
+  console.log(`📂 Leitor Recursivo Exaustivo Concluído (${commands.size} comandos mapeados de todas as subpastas)`);
   console.log(`========================================\n`);
 
   let defaultNum = config.OWNER_NUMBER;
@@ -395,7 +402,7 @@ async function startBot() {
         continue;
       }
 
-      // Execução garantida via mapa de comandos modulares recursivos de todas as pastas
+      // Execução garantida via mapa de comandos modulares exaustivos
       if (commands.has(commandKey)) {
         const cmd = commands.get(commandKey);
         try {
