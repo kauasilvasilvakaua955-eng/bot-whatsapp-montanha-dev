@@ -1,14 +1,17 @@
 module.exports = {
-  name: "menudono",
-  description: "Exibe o painel do dono e comandos de gestão",
-  category: "dono",
-  async execute({ sock, from, isOwner, msg, cfg, commands }) {
-    if (!isOwner) return sock.sendMessage(from, { text: "❌ Comando restrito ao Dono Supremo!" }, { quoted: msg });
-    let text = `🤖 *${cfg.BOT_NAME} — PAINEL DO DONO* 👑\n\n`;
-    text += `💼 💰 GESTÃO DE ALUGUEL & TAXAS\n`;
-    const aluguelCmds = Array.from(commands.values()).filter(c => c.category === "aluguel");
-    aluguelCmds.forEach(c => { text += `› \`/${c.name}\` - ${c.description}\n`; });
-    text += `\n✦ ${cfg.COMPANY_NAME} ✨`;
-    await sock.sendMessage(from, { text }, { quoted: msg });
+  name: '/menudono',
+  category: 'dono',
+  async execute(sock, msg, from, args, senderJid, userNumber, db, config) {
+    const mDono = `👑 *PAINEL EXCLUSIVO DO DONO — LUNAR SYSTEM* ⚜️\n\n` +
+      `› \`/setowner\` - Registro supremo\n` +
+      `› \`/menupagamento\` - Categoria de pagamentos, saques Pix e Purin Cash automática\n` +
+      `› \`/criaraluguel\` - Criar planos com taxa direta na Purin\n` +
+      `› \`/editbotname\` - Altera nome do bot\n` +
+      `› \`/editdaily\` - Altera bônus diário\n` +
+      `› \`/editbankinterest\` - Altera juros do banco\n` +
+      `› \`/editapipagamentos\` / \`/editsecretpagamentos\` - Gateways\n` +
+      `› \`/addnewcmd\` - Criar comando custom\n` +
+      `› \`/addaluguel\` / \`/rmaluguel\` / \`/listalugueis\``;
+    await sock.sendMessage(from, { text: mDono }, { quoted: msg });
   }
 };

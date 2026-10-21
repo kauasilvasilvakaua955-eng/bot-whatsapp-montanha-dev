@@ -121,20 +121,29 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
+// Carregador Modular Profundo Recursivo para a pasta commands e suas subpastas de menus
 const commands = new Map();
-const categories = ['dono', 'adm', 'economia', 'jogos', 'util', 'aluguel', 'xp', 'casamento', 'vip'];
-for (const cat of categories) {
-  const catPath = path.join(__dirname, 'commands', cat);
-  if (fs.existsSync(catPath)) {
-    const files = fs.readdirSync(catPath).filter(file => file.endsWith('.js'));
-    for (const file of files) {
-      const cmdModule = require(path.join(catPath, file));
-      if (cmdModule && cmdModule.name) {
-        commands.set(cmdModule.name.toLowerCase(), cmdModule);
+function loadCommandsRecursive(dir) {
+  if (!fs.existsSync(dir)) return;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      loadCommandsRecursive(fullPath);
+    } else if (entry.isFile() && entry.name.endsWith('.js')) {
+      try {
+        delete require.cache[require.resolve(fullPath)];
+        const cmdModule = require(fullPath);
+        if (cmdModule && cmdModule.name) {
+          commands.set(cmdModule.name.toLowerCase(), cmdModule);
+        }
+      } catch (err) {
+        console.error(`Erro ao carregar comando ${fullPath}:`, err.message);
       }
     }
   }
 }
+loadCommandsRecursive(path.join(__dirname, 'commands'));
 
 async function safeSendMessage(sock, jid, content, options = {}) {
   try {
@@ -148,7 +157,7 @@ async function startBot() {
   const config = loadConfig();
   console.log(`\n========================================`);
   console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} -${config.COMPANY_NAME}`);
-  console.log(`📂 Sistema Modular com Toggle ON/OFF (Default OFF) Carregado`);
+  console.log(`📂 Sistema Modular Recursivo Carregado (${commands.size} comandos encontrados nas subpastas)`);
   console.log(`========================================\n`);
 
   let defaultNum = config.OWNER_NUMBER;
@@ -210,6 +219,23 @@ async function startBot() {
     } else if (connection === 'open') {
       console.log(`\n✅ ${config.BOT_NAME} CONECTADO COM SUCESSO!\n`);
     }
+  });
+
+  sock.ev.on('group-participants.update', async (update) => {
+    try {
+      const { id, participants, action } = update;
+      db = loadDatabase();
+      if (action === 'add') {
+        if (db.autoAprovarGroups && db.autoAprovarGroups[id]) {
+          try { await sock.groupRequestParticipantsUpdate(id, participants, 'approve'); } catch {}
+        }
+        if (db.autoHistoricoGroups && db.autoHistoricoGroups[id] || db.welcomeGroups && db.welcomeGroups[id]) {
+          for (const p of participants) {
+            await safeSendMessage(sock, id, { text: `👋 Olá @${p.split('@')[0]}! Seja muito bem-vindo(a) ao grupo!`, mentions: [p] });
+          }
+        }
+      }
+    } catch {}
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
