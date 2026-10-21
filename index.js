@@ -121,7 +121,7 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-// Carregador Modular Profundo Recursivo para a pasta commands e suas subpastas de menus
+// Carregador Modular Recursivo Rigoroso para todas as subpastas em commands/
 const commands = new Map();
 function loadCommandsRecursive(dir) {
   if (!fs.existsSync(dir)) return;
@@ -157,7 +157,7 @@ async function startBot() {
   const config = loadConfig();
   console.log(`\n========================================`);
   console.log(`🤖 INICIALIZANDO ${config.BOT_NAME} -${config.COMPANY_NAME}`);
-  console.log(`📂 Sistema Modular Recursivo Carregado (${commands.size} comandos encontrados nas subpastas)`);
+  console.log(`📂 Sistema Modular Recursivo Rigoroso Carregado (${commands.size} comandos ativos)`);
   console.log(`========================================\n`);
 
   let defaultNum = config.OWNER_NUMBER;
@@ -229,7 +229,7 @@ async function startBot() {
         if (db.autoAprovarGroups && db.autoAprovarGroups[id]) {
           try { await sock.groupRequestParticipantsUpdate(id, participants, 'approve'); } catch {}
         }
-        if (db.autoHistoricoGroups && db.autoHistoricoGroups[id] || db.welcomeGroups && db.welcomeGroups[id]) {
+        if ((db.autoHistoricoGroups && db.autoHistoricoGroups[id]) || (db.welcomeGroups && db.welcomeGroups[id])) {
           for (const p of participants) {
             await safeSendMessage(sock, id, { text: `👋 Olá @${p.split('@')[0]}! Seja muito bem-vindo(a) ao grupo!`, mentions: [p] });
           }
@@ -245,7 +245,7 @@ async function startBot() {
       if (!msg.message || msg.key.fromMe) continue;
 
       const from = msg.key.remoteJid;
-      if (!from.endsWith('@g.us')) continue; // 100% exclusivo para grupos
+      if (!from.endsWith('@g.us')) continue; // 100% exclusivo para grupos (@g.us)
 
       const senderJid = msg.key.participant || msg.key.remoteJid;
       const userNumber = senderJid.split('@')[0].split(':')[0];
@@ -331,7 +331,7 @@ async function startBot() {
       const commandKey = trimmedText.split(' ')[0].toLowerCase();
       const args = trimmedText.split(' ').slice(1);
 
-      // Validação de sistemas OFF (default OFF)
+      // Validação rigorosa de sistemas OFF (default OFF)
       if (['/nivel', '/xp', '/rankingxp'].includes(commandKey)) {
         if (!db.systemXpGroups || db.systemXpGroups[from] !== true) {
           await safeSendMessage(sock, from, { text: `⚠️ O sistema de XP está desativado neste grupo (Default: OFF). Um administrador pode ativar com \`/sistemaxp on\`.` }, { quoted: msg });
@@ -395,12 +395,14 @@ async function startBot() {
         continue;
       }
 
+      // Execução garantida via mapa de comandos modulares recursivos
       if (commands.has(commandKey)) {
         const cmd = commands.get(commandKey);
         try {
           await cmd.execute(sock, msg, from, args, senderJid, userNumber, db, config);
         } catch (e) {
-          console.error(`Erro no comando ${commandKey}:`, e);
+          console.error(`Erro ao executar o comando ${commandKey}:`, e);
+          await safeSendMessage(sock, from, { text: `❌ Erro interno ao executar ${commandKey}.` });
         }
       }
     }
