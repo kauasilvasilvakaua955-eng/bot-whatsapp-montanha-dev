@@ -117,7 +117,7 @@ function saveDatabase(data) {
 
 // Carregador Modular de Comandos por Subpastas (1 comando = 1 arquivo)
 const commands = new Map();
-const categories = ['dono', 'adm', 'economia', 'jogos', 'util', 'aluguel'];
+const categories = ['dono', 'adm', 'economia', 'jogos', 'util', 'aluguel', 'xp', 'casamento', 'vip'];
 for (const cat of categories) {
   const catPath = path.join(__dirname, 'commands', cat);
   if (fs.existsSync(catPath)) {
@@ -315,7 +315,6 @@ async function startBot() {
       const commandKey = trimmedText.split(' ')[0].toLowerCase();
       const args = trimmedText.split(' ').slice(1);
 
-      // Tratamento especial para comandos interativos do dono
       if (commandKey === '/setowner') {
         if (db.ownerJid) {
           await safeSendMessage(sock, from, { text: `⚠️ *DONO JÁ CADASTRADO!*` }, { quoted: msg });
@@ -358,7 +357,6 @@ async function startBot() {
         continue;
       }
 
-      // Executa comando modular carregado da pasta correspondente
       if (commands.has(commandKey)) {
         const cmd = commands.get(commandKey);
         try {
